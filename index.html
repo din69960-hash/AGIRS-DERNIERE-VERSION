@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -704,8 +705,11 @@ function getTotal(gid, teamType, agres) {
     ? discs.filter(d => SECTION_AGRES[agres].includes(d.section))
     : discs;
   return filtered.reduce((s, d) => {
-    const v = getScore(gid, d.key);
-    return s + (v !== null ? v : 0);
+    const nd = getScore(gid, d.key+'_note');
+    const dv = getScore(gid, d.key+'_diff');
+    const fd = getScore(gid, d.key+'_faute');
+    if (nd === null) return s;
+    return s + Math.max(0, Math.round(((nd + (dv||0)) - (fd||0)) * 10) / 10);
   }, 0);
 }
 function isComplete(gid, teamType) {
