@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGIRS – Notation Concours</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC7HUJxPJO6OyzsK-gOIjJ1ySkblbfYEq8",
+  authDomain: "agirs-c2e72.firebaseapp.com",
+  projectId: "agirs-c2e72",
+  storageBucket: "agirs-c2e72.firebasestorage.app",
+  messagingSenderId: "378140701705",
+  appId: "1:378140701705:web:24562a6272871015c1b4d8"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const TEAMS_DOC   = doc(db, 'agirs', 'teams');
+const SCORES_DOC  = doc(db, 'agirs', 'scores');
+const FILTERS_DOC = doc(db, 'agirs', 'filters');
+const ADMIN_DOC    = doc(db, 'agirs', 'admin');
+const ATELIERS_DOC = doc(db, 'agirs', 'ateliers');
+
+window._fbSave = async function(teams, scores, filters) {
+  if (window._siteLocked && !window._isAdmin) return;
+  try {
+    await setDoc(TEAMS_DOC,   { data: JSON.stringify(teams) });
+    await setDoc(SCORES_DOC,  { data: JSON.stringify(scores) });
+    await setDoc(FILTERS_DOC, { data: JSON.stringify(filters) });
+  } catch(e) { console.warn('Firebase save error', e); }
+};
+
+window._fbSaveAdmin = async function(locked) {
+  try { await setDoc(ADMIN_DOC, { locked }); } catch(e) { console.warn('Firebase admin save error', e); }
+};
+
+window._fbSaveAteliers = async function(ateliers) {
+  try { await setDoc(ATELIERS_DOC, { data: JSON.stringify(ateliers) }); } catch(e) { console.warn('Firebase ateliers save error', e); }
+};
+
+// Real-time sync ateliers
+onSnapshot(ATELIERS_DOC, (snap) => {
+  if (!snap.exists()) return;
+  const d = JSON.parse(snap.data().data || '[]');
+  if (JSON.stringify(d) === JSON.stringify(window._ateliers)) return;
+  window._ateliers = d;
+  try {
+    const active = document.querySelector('.page.active');
+    if (active && active.id === 'page-notation' && typeof renderNotifPage === 'function') renderNotifPage();
+    if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
+  } catch(e) {}
+});
+
+// Real-time sync admin
+onSnapshot(ADMIN_DOC, (snap) => {
+  if (!snap.exists()) return;
+  window._siteLocked = snap.data().locked || false;
+  if (typeof updateLockBanner === 'function') updateLockBanner();
+  if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
+});
+
+// Real-time sync scores
+onSnapshot(SCORES_DOC, (snap) => {
+  if (!snap.exists()) return;
+  const d = JSON.parse(snap.data().data || '{}');
+  if (JSON.stringify(d) === JSON.stringify(window._scores)) return;
+  window._scores = d;
+  try {
+    const active = document.querySelector('.page.active');
+    if (!active) return;
+    if (active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
+    if (active.id === 'page-resultats' && typeof renderResults === 'function') renderResults();
+    if (active.id === 'page-avancement' && typeof renderAvancement === 'function') renderAvancement();
+  } catch(e) {}
+});
+
+// Real-time sync teams
+onSnapshot(TEAMS_DOC, (snap) => {
+  if (!snap.exists()) return;
+  const d = JSON.parse(snap.data().data || '[]');
+  if (JSON.stringify(d) === JSON.stringify(window._teams)) return;
+  window._teams = d;
+  try {
+    const active = document.querySelector('.page.active');
+    if (active && active.id === 'page-inscription' && typeof renderInscription === 'function') {
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      renderInscription();
+    }
+    if (active && active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
+  } catch(e) {}
+});
+
+// Load initial data then start app
+Promise.all([getDoc(TEAMS_DOC), getDoc(SCORES_DOC), getDoc(FILTERS_DOC), getDoc(ADMIN_DOC), getDoc(ATELIERS_DOC)]).then(([ts, ss, fs, as, atS]) => {
+  if (ts.exists() && ts.data().data) {
+    const d = JSON.parse(ts.data().data);
+    if (d.length) window._teams = d;
+  }
+  if (ss.exists() && ss.data().data) window._scores = JSON.parse(ss.data().data);
+  if (fs.exists() && fs.data().data) window._ageFilters = JSON.parse(fs.data().data);
+  if (as.exists()) window._siteLocked = as.data().locked || false;
+  if (atS.exists() && atS.data().data) window._ateliers = JSON.parse(atS.data().data);
+}).catch(e => console.warn('Firebase load error', e)).finally(() => {
+  document.getElementById('fb-loading').style.display = 'none';
+  window._fbReady = true;
+  if (typeof updateLockBanner === 'function') updateLockBanner();
+  if (typeof renderInscription === 'function') renderInscription();
+});
+</script>
+<style>
+:root {
+  --blue:#1a4fa0;--blue-light:#2563c0;--blue-pale:#e8f0fb;
+  --red:#d42b2b;--gold:#f0a500;--gold-bg:#fdf3dc;
+  --bg:#f4f6fa;--card:#fff;--text:#1a1a2e;--text2:#5a6178;
+  --border:#dde3ef;--success:#1a9e5c;--radius:12px;
+  --shadow:0 2px 12px rgba(26,79,160,.09);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px}
+
+/* HEADER */
+.header{background:var(--blue);position:sticky;top:0;z-index:200;box-shadow:0 3px 16px rgba(0,0,0,.22)}
+.header-top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:2px solid var(--red)}
+.logo-area{display:flex;align-items:center;gap:10px}
+.logo-mark{width:40px;height:40px;background:var(--red);border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:14px;color:#fff;flex-shrink:0}
+.logo-text{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:20px;letter-spacing:2px;color:#fff;text-transform:uppercase}
+.logo-sub{font-size:10px;color:rgba(255,255,255,.7);letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.header-badge{background:var(--red);color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;padding:4px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase}
+.nav-tabs{display:flex;overflow-x:auto;scrollbar-width:none;background:rgba(0,0,0,.2)}
+.nav-tabs::-webkit-scrollbar{display:none}
+.nav-tab{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.65);padding:9px 14px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;transition:all .2s;flex-shrink:0}
+.nav-tab.active,.nav-tab:hover{color:#fff;border-bottom-color:var(--gold);background:rgba(255,255,255,.06)}
+
+/* PAGES */
+.page{display:none;padding:16px}
+.page.active{display:block}
+
+/* TYPOGRAPHY */
+.section-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:22px;color:var(--blue);text-transform:uppercase;letter-spacing:2px;margin-bottom:4px}
+.section-sub{font-size:13px;color:var(--text2);margin-bottom:16px}
+
+/* FILTER PILLS */
+.pill-row{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;margin-bottom:14px}
+.pill-row::-webkit-scrollbar{display:none}
+.pill{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;padding:5px 13px;border-radius:20px;border:2px solid var(--border);background:var(--card);color:var(--text2);cursor:pointer;white-space:nowrap;transition:all .18s;flex-shrink:0}
+.pill.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.pill:hover:not(.active){border-color:var(--blue);color:var(--blue)}
+.pill.red-pill{border-color:var(--red);color:var(--red)}
+.pill.red-pill.active{background:var(--red);color:#fff}
+
+/* CARDS */
+.card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);margin-bottom:10px}
+.card-blue{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+/* GYMNAST LIST */
+.gymnast-item{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;transition:all .18s;box-shadow:var(--shadow);margin-bottom:8px}
+.gymnast-item:hover,.gymnast-item.sel{border-color:var(--blue);box-shadow:0 2px 16px rgba(26,79,160,.15)}
+.gymnast-item.sel{background:var(--blue-pale)}
+.gym-name{font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gym-meta{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;color:var(--blue);letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+.gym-score{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:26px;color:var(--blue);line-height:1;text-align:right}
+.gym-score.done{color:var(--success)}
+.gym-score.empty{color:var(--border)}
+.score-lbl{font-size:10px;color:var(--text2);letter-spacing:.5px;text-transform:uppercase;margin-top:1px;text-align:right}
+.dots{display:flex;gap:3px;margin-top:4px;justify-content:flex-end}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--border)}
+.dot.on{background:var(--blue)}
+.dot.full{background:var(--success)}
+
+/* NOTATION FORM */
+.notif-header{background:var(--blue);color:#fff;padding:14px 16px;border-radius:var(--radius) var(--radius) 0 0;display:flex;align-items:center;justify-content:space-between}
+.notif-name{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;letter-spacing:1px;text-transform:uppercase}
+.group-badge{background:var(--red);color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;padding:3px 10px;border-radius:20px;letter-spacing:1px}
+.disc-block{border-bottom:1px solid var(--border);padding:12px 16px}
+.disc-block:last-of-type{border-bottom:none}
+.disc-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+.criteria-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+.criteria-row:last-of-type{border-bottom:none}
+.crit-label{flex:1;font-size:13px;font-weight:500;min-width:0}
+.crit-cols{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.crit-col{display:flex;flex-direction:column;align-items:center;gap:2px}
+.crit-col-lbl{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;white-space:nowrap}
+.crit-select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;color:var(--blue);text-align-last:center;cursor:pointer;width:58px;-webkit-appearance:none;appearance:none}
+.crit-select:focus{outline:none;border-color:var(--blue)}
+.crit-total{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:18px;color:var(--success);width:58px;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;line-height:1.3}
+.crit-total.empty{color:var(--border)}
+.subtotal-row{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:2px solid var(--border)}
+.subtotal-lbl{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px}
+.subtotal-val{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px;color:var(--blue)}
+.grand-bar{background:var(--blue);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center}
+.grand-lbl{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:14px;letter-spacing:2px;text-transform:uppercase}
+.grand-val{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:36px;line-height:1}
+.save-btn{width:100%;background:var(--success);color:#fff;border:none;padding:14px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;transition:background .18s;border-radius:0 0 var(--radius) var(--radius)}
+.save-btn:active{background:#14865a}
+
+/* RESULTS */
+.result-item{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:center;gap:12px;margin-bottom:8px;box-shadow:var(--shadow)}
+.rank-num{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:24px;width:34px;text-align:center;flex-shrink:0}
+.r1{color:var(--gold)}.r2{color:#9e9e9e}.r3{color:#c87533}.rx{color:var(--border)}
+.result-info{flex:1;min-width:0}
+.result-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.result-meta{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;color:var(--blue);letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.result-score{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:26px;color:var(--blue)}
+.bar-wrap{height:4px;background:var(--bg);border-radius:2px;margin-top:4px}
+.bar-fill{height:4px;background:var(--blue);border-radius:2px}
+
+/* TEAM RESULT */
+.team-item{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)}
+.team-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.team-name-big{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:18px;color:var(--blue);text-transform:uppercase;letter-spacing:1px}
+.team-score-big{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:28px;color:var(--blue)}
+.team-detail{font-size:12px;color:var(--text2)}
+
+/* PARAM PANEL */
+.param-panel{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px;box-shadow:var(--shadow)}
+.param-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;color:var(--blue);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px}
+.param-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px}
+.param-label{font-size:13px;font-weight:500;flex:1}
+.param-select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;font-family:'Barlow',sans-serif;color:var(--text);cursor:pointer}
+.param-input{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;font-family:'Barlow',sans-serif;color:var(--text);width:60px;text-align:center}
+.age-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.age-tag{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;padding:4px 10px;border-radius:20px;background:var(--blue-pale);color:var(--blue);border:none;cursor:pointer;display:flex;align-items:center;gap:4px}
+.age-tag .x{color:var(--red);font-weight:900;font-size:14px}
+.add-age-row{display:flex;gap:8px;margin-top:8px;align-items:center}
+.add-age-inp{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;font-family:'Barlow',sans-serif;color:var(--text);width:80px}
+.btn-sm{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;padding:6px 14px;border-radius:8px;border:none;cursor:pointer;transition:all .18s;text-transform:uppercase}
+.btn-blue{background:var(--blue);color:#fff}
+.btn-blue:active{background:var(--blue-light)}
+.btn-red{background:var(--red);color:#fff}
+.btn-green{background:var(--success);color:#fff}
+.btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text2)}
+.btn-outline:hover{border-color:var(--blue);color:var(--blue)}
+
+/* INSCRIPTION */
+.team-card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);margin-bottom:12px;box-shadow:var(--shadow);overflow:hidden}
+.team-card-header{background:var(--blue);color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:space-between}
+.team-card-name{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:17px;letter-spacing:1px;text-transform:uppercase}
+.team-card-meta{font-size:12px;color:rgba(255,255,255,.75);margin-top:2px}
+.team-card-body{padding:10px 14px}
+.gym-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
+.gym-row input{flex:1;border:none;background:transparent;font-family:'Barlow',sans-serif;font-size:13px;color:var(--text);min-width:0}
+.gym-row input:focus{outline:none}
+.gym-row-year{width:54px;text-align:center;font-weight:600;color:var(--blue)}
+.del-btn{background:none;border:none;color:var(--red);font-size:18px;cursor:pointer;padding:0 4px;flex-shrink:0;line-height:1}
+.add-gym-btn{display:flex;align-items:center;gap:6px;background:transparent;border:1.5px dashed var(--border);border-radius:8px;padding:8px 14px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--text2);width:100%;justify-content:center;transition:all .18s;margin-top:4px}
+.add-gym-btn:hover{border-color:var(--blue);color:var(--blue)}
+.new-team-form{background:var(--card);border:1.5px dashed var(--blue);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+.new-team-inputs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.new-team-inputs input{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:8px 12px;font-size:13px;font-family:'Barlow',sans-serif;color:var(--text);flex:1;min-width:120px}
+.new-team-inputs input:focus{outline:none;border-color:var(--blue)}
+
+/* AVANCEMENT */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.stat-card{background:var(--card);border-radius:var(--radius);border:1.5px solid var(--border);padding:14px;text-align:center;box-shadow:var(--shadow)}
+.stat-num{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:36px;color:var(--blue);line-height:1}
+.stat-lbl{font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+.prog-row{background:var(--card);border-radius:10px;border:1.5px solid var(--border);padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+.prog-lbl{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;color:var(--blue);width:50px;flex-shrink:0}
+.prog-bar-wrap{flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden}
+.prog-bar{height:8px;background:var(--blue);border-radius:4px;transition:width .4s}
+.prog-pct{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--text2);width:40px;text-align:right}
+
+/* MISC */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--success);color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;letter-spacing:1px;padding:12px 24px;border-radius:30px;box-shadow:0 4px 20px rgba(0,0,0,.25);transition:transform .3s;z-index:999;pointer-events:none}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text2);font-size:14px}
+.divider{height:1px;background:var(--border);margin:12px 0}
+.section-label{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin:16px 0 8px}
+.export-btn{background:var(--blue);color:#fff;border:none;padding:8px 14px;border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;cursor:pointer}
+.notif-wrap{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-top:14px}
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+/* DRAG & DROP */
+.drag-handle{width:30px;display:flex;align-items:center;justify-content:center;cursor:grab;color:rgba(255,255,255,.5);font-size:20px;flex-shrink:0;touch-action:none;user-select:none}
+.drag-handle:active{cursor:grabbing;color:#fff}
+.team-card.dragging{opacity:.35;border:2px dashed var(--gold)}
+.team-card.drag-over{border-top:3px solid var(--gold)}
+/* INLINE SCORE COLUMNS */
+.gym-inline-cols{display:flex;gap:5px;align-items:center;flex-shrink:0;margin-left:4px}
+.inline-col{display:flex;flex-direction:column;align-items:center;gap:2px}
+.inline-col-lbl{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;white-space:nowrap}
+.inline-col select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;color:var(--blue);text-align-last:center;cursor:pointer;width:54px;-webkit-appearance:none;appearance:none}
+.inline-col select:focus{outline:none;border-color:var(--blue)}
+.inline-col-result{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:19px;color:var(--success);width:54px;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;line-height:1.3}
+.inline-col-result.empty{color:var(--border)}
+/* ADMIN */
+.admin-card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
+.admin-title{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:18px;color:var(--blue);text-transform:uppercase;letter-spacing:2px;margin-bottom:6px}
+.admin-desc{font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.5}
+.admin-status{display:inline-flex;align-items:center;gap:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;padding:6px 14px;border-radius:20px;margin-bottom:14px}
+.admin-status.locked{background:#fde8e8;color:var(--red)}
+.admin-status.unlocked{background:#e8f6ee;color:var(--success)}
+.login-input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:10px 14px;font-size:15px;font-family:'Barlow',sans-serif;color:var(--text);margin-bottom:12px}
+.login-input:focus{outline:none;border-color:var(--blue)}
+
+</style>
+</head>
+<body>
+
+<div id="fb-loading" style="position:fixed;inset:0;background:#1a4fa0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px">
+  <div style="width:60px;height:60px;background:#d42b2b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;color:#fff">GYM</div>
+  <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:28px;letter-spacing:3px;color:#fff">AGIRS</div>
+  <div style="color:rgba(255,255,255,.7);font-size:13px;letter-spacing:1px">Synchronisation...</div>
+</div>
+<div class="header">
+  <div class="header-top">
+    <div class="logo-area">
+      <div class="logo-mark">GYM</div>
+      <div>
+        <div class="logo-text">AGIRS</div>
+        <div class="logo-sub">Association Gymnique Intercommunale</div>
+      </div>
+    </div>
+    <div class="header-badge" id="hbadge">Concours</div>
+  </div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="showPage('inscription')">👥 Équipes</div>
+    <div class="nav-tab" onclick="showPage('notation')">📋 Notation</div>
+    <div class="nav-tab" onclick="showPage('resultats')">🏆 Résultats</div>
+    <div class="nav-tab" onclick="showPage('avancement')">📊 Avancement</div>
+    <div class="nav-tab" onclick="showPage('admin')" style="margin-left:auto;color:var(--gold)">🔐 Admin</div>
+  </div>
+</div>
+
+<!-- ══ BANDEAU VERROU ══ -->
+<div id="lock-banner" style="display:none;background:#d42b2b;color:#fff;text-align:center;padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;letter-spacing:1px;position:sticky;top:0;z-index:150">
+  🔒 SITE VERROUILLÉ – Saisie désactivée par l'administrateur
+</div>
+
+<!-- ══ ADMIN ══ -->
+<div class="page" id="page-admin">
+  <div id="admin-login-area"></div>
+  <div id="admin-panel-area" style="display:none"></div>
+</div>
+
+<!-- ══ INSCRIPTION ══ -->
+<div class="page active" id="page-inscription">
+  <div class="section-title">Équipes &amp; Gymnastes</div>
+  <div class="section-sub">Créez vos équipes et saisissez les gymnastes</div>
+  <div id="new-team-area"></div>
+  <button class="btn-sm btn-blue" style="margin-bottom:14px;width:100%;padding:12px" onclick="showNewTeamForm()">＋ Créer une nouvelle équipe</button>
+  <div id="teams-list"></div>
+</div>
+
+<!-- ══ NOTATION ══ -->
+<div class="page" id="page-notation">
+  <div class="section-title">Notation</div>
+  <div class="section-sub">Sélectionnez une gymnaste pour noter</div>
+  <div class="pill-row" id="notif-group-filter"></div>
+  <div id="gymnast-list"></div>
+  <div id="notation-form-area"></div>
+</div>
+
+<!-- ══ RÉSULTATS ══ -->
+<div class="page" id="page-resultats">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <div class="section-title">Résultats</div>
+    <button class="export-btn" onclick="exportCSV()">⬇ CSV</button>
+  </div>
+  <div class="section-sub">Paramétrez le classement souhaité</div>
+
+  <!-- Paramètres -->
+  <div class="param-panel">
+    <div class="param-title">⚙️ Paramétrage du classement</div>
+    <div class="param-row">
+      <div class="param-label">Type de classement</div>
+      <select class="param-select" id="res-type" onchange="renderResults()">
+        <option value="indiv-global">Individuel – Tout confondu</option>
+        <option value="indiv-age">Individuel – Par année d'âge</option>
+        <option value="equipe-global">Équipe – Tout confondu</option>
+        <option value="equipe-age">Équipe – Par année d'âge</option>
+      </select>
+    </div>
+    <div class="param-row" id="res-agrès-row">
+      <div class="param-label">Agrès concerné</div>
+      <select class="param-select" id="res-agres" onchange="renderResults()">
+        <option value="total">Total général</option>
+        <option value="sol">Sol</option>
+        <option value="barres">Barres</option>
+        <option value="poutre">Poutre / Anneaux</option>
+        <option value="saut">Saut</option>
+      </select>
+    </div>
+    <div class="param-row" id="res-top-row">
+      <div class="param-label">Notes retenues par équipe / agrès</div>
+      <input class="param-input" id="res-top-n" type="number" min="1" max="10" value="4" oninput="renderResults()">
+    </div>
+    <div id="res-age-config" style="display:none">
+      <div class="param-label" style="font-size:13px;font-weight:500;margin-bottom:6px">Années d'âge à afficher (max 5)</div>
+      <div class="age-tags" id="age-tags-list"></div>
+      <div class="add-age-row">
+        <input class="add-age-inp" id="add-age-inp" type="number" placeholder="ex: 2019" min="2000" max="2030">
+        <button class="btn-sm btn-blue" onclick="addAgeFilter()">Ajouter</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="results-content"></div>
+</div>
+
+<!-- ══ AVANCEMENT ══ -->
+<div class="page" id="page-avancement">
+  <div class="section-title">Avancement</div>
+  <div class="section-sub">Progression de la saisie</div>
+  <div class="stat-grid" id="stat-grid"></div>
+  <div id="group-prog-list"></div>
+  <div style="margin-top:14px">
+    <button class="btn-sm btn-red" onclick="confirmReset()" style="width:100%;padding:11px">⚠ Réinitialiser toutes les notes</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════
+// CONSTANTES DISCIPLINES
+// ══════════════════════════════════════════════════
+const DISC_GAF = [
+  {key:'sol_av',   label:'Rotation avant',  section:'Sol',    max:10},
+  {key:'sol_ar',   label:'Rotation arrière',section:'Sol',    max:10},
+  {key:'sol_ch',   label:'Chorégraphie',    section:'Sol',    max:10},
+  {key:'sol_so',   label:'Souplesse',       section:'Sol',    max:10},
+  {key:'bar_su',   label:'Suspension',      section:'Barres', max:10},
+  {key:'bar_ap',   label:'Appui',           section:'Barres', max:10},
+  {key:'poutre',   label:'Poutre',          section:'Poutre', max:10},
+  {key:'saut_sa',  label:'Saut',            section:'Saut',   max:10},
+  {key:'saut_al',  label:'Alignement',      section:'Saut',   max:10},
+];
+const DISC_GAM = [
+  {key:'sol_av',   label:'Rotation avant',  section:'Sol',    max:10},
+  {key:'sol_ar',   label:'Rotation arrière',section:'Sol',    max:10},
+  {key:'sol_ch',   label:'Chorégraphie',    section:'Sol',    max:10},
+  {key:'sol_so',   label:'Souplesse',       section:'Sol',    max:10},
+  {key:'bar_su',   label:'Suspension',      section:'Barres', max:10},
+  {key:'bar_ap',   label:'Appui',           section:'Barres', max:10},
+  {key:'anneaux',  label:'Anneaux',         section:'Anneaux',max:10},
+  {key:'saut_sa',  label:'Saut',            section:'Saut',   max:10},
+  {key:'saut_al',  label:'Alignement',      section:'Saut',   max:10},
+];
+
+const SECTION_AGRES = {
+  sol:    ['Sol'],
+  barres: ['Barres'],
+  poutre: ['Poutre','Anneaux'],
+  saut:   ['Saut'],
+  total:  null
+};
+
+function getDisciplines(teamType) {
+  // If custom ateliers are defined, use them
+  if (window._ateliers && window._ateliers.length > 0) {
+    // Group ateliers by agres as disciplines
+    const seen = {};
+    return window._ateliers.map(a => {
+      const key = 'at_' + a.id;
+      return { key, label: a.label, section: a.agres, max: 10 };
+    });
+  }
+  return (teamType||'').toLowerCase().includes('gam') ? DISC_GAM : DISC_GAF;
+}
+
+// ══════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════
+// Firebase shared state via window
+window._teams = JSON.parse(localStorage.getItem('agirs_teams') || '[]');
+window._scores = JSON.parse(localStorage.getItem('agirs_scores') || '{}');
+window._ageFilters = JSON.parse(localStorage.getItem('agirs_age_filters') || '[]');
+window._fbReady = false;
+
+// Proxies so existing code works unchanged
+Object.defineProperty(window, 'teams',      { get(){ return window._teams; },      set(v){ window._teams = v; },      configurable:true });
+Object.defineProperty(window, 'scores',     { get(){ return window._scores; },     set(v){ window._scores = v; },     configurable:true });
+Object.defineProperty(window, 'ageFilters', { get(){ return window._ageFilters; }, set(v){ window._ageFilters = v; }, configurable:true });
+
+let activeNotifGroup = 'Tous';
+let activeGymnast = null;
+let showNewTeam = false;
+window._siteLocked = false;
+window._isAdmin = false;
+window._ateliers = []; // [{id, agres, label}]
+const ADMIN_PASSWORD = '#Caramel2020*';
+
+function updateLockBanner() {
+  const b = document.getElementById('lock-banner');
+  if (b) b.style.display = (window._siteLocked && !window._isAdmin) ? 'block' : 'none';
+}
+
+function renderAdminLogin() {
+  document.getElementById('admin-login-area').innerHTML = `
+    <div class="section-title">Administration</div>
+    <div class="section-sub">Accès réservé à l'administrateur</div>
+    <div class="admin-card">
+      <div class="admin-title">🔐 Connexion</div>
+      <div class="admin-desc">Saisissez le mot de passe administrateur.</div>
+      <input class="login-input" type="password" id="admin-pwd-input" placeholder="Mot de passe" onkeydown="if(event.key==='Enter')checkAdminPwd()">
+      <button class="btn-sm btn-blue" style="width:100%;padding:12px" onclick="checkAdminPwd()">Connexion</button>
+      <div id="admin-pwd-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none">❌ Mot de passe incorrect</div>
+    </div>`;
+  document.getElementById('admin-panel-area').style.display = 'none';
+  document.getElementById('admin-login-area').style.display = 'block';
+}
+
+function checkAdminPwd() {
+  const pwd = document.getElementById('admin-pwd-input').value;
+  if (pwd === ADMIN_PASSWORD) {
+    window._isAdmin = true;
+    updateLockBanner();
+    document.getElementById('admin-login-area').style.display = 'none';
+    document.getElementById('admin-panel-area').style.display = 'block';
+    renderAdmin();
+  } else {
+    document.getElementById('admin-pwd-error').style.display = 'block';
+  }
+}
+
+function renderAdmin() {
+  if (!window._isAdmin) return;
+  const locked = window._siteLocked;
+  document.getElementById('admin-panel-area').innerHTML = `
+    <div class="section-title">Administration</div>
+    <div class="section-sub">Connecté en tant qu'administrateur</div>
+    <div class="admin-card">
+      <div class="admin-title">🔒 Verrouillage du site</div>
+      <div class="admin-desc">Quand verrouillé, les autres voient un avertissement et ne peuvent plus modifier les saisies.</div>
+      <div class="admin-status ${locked ? 'locked' : 'unlocked'}">${locked ? '🔒 Site VERROUILLÉ' : '🔓 Site DÉVERROUILLÉ'}</div><br>
+      ${locked
+        ? `<button class="btn-sm btn-green" style="width:100%;padding:12px" onclick="setSiteLock(false)">🔓 Déverrouiller le site</button>`
+        : `<button class="btn-sm btn-red" style="width:100%;padding:12px" onclick="setSiteLock(true)">🔒 Verrouiller le site</button>`}
+    </div>
+    <div class="admin-card">
+      <div class="admin-title">🗑 Remise des résultats à zéro</div>
+      <div class="admin-desc">Efface définitivement toutes les notes. Les équipes et gymnastes sont conservés.</div>
+      <button class="btn-sm btn-red" style="width:100%;padding:12px" onclick="adminResetScores()">⚠ Remettre les résultats à zéro</button>
+    </div>
+    <div class="admin-card">
+      <div class="admin-title">🏋️ Gestion des ateliers</div>
+      <div class="admin-desc">Définissez les agrès et ateliers qui apparaîtront dans la notation de chaque gymnaste.</div>
+      <button class="btn-sm btn-blue" style="width:100%;padding:12px" onclick="showAteliersPage()">⚙️ Gérer les ateliers</button>
+    </div>
+    <div class="admin-card">
+      <button class="btn-sm btn-outline" style="width:100%;padding:10px" onclick="adminLogout()">Se déconnecter</button>
+    </div>`;
+}
+
+
+// ══════════════════════════════════════════════════
+// GESTION ATELIERS
+// ══════════════════════════════════════════════════
+const AGRES_LIST = ['Sol','Poutre','Saut','Barres','Anneaux','Arçons','Fixe','Parallèles','Autre'];
+const AGRES_ICONS = {Sol:'🤸',Poutre:'⚖️',Saut:'🦘',Barres:'🔵',Anneaux:'⭕',Arçons:'🎠',Fixe:'🔧',Parallèles:'📏',Autre:'⭐'};
+
+function showAteliersPage() {
+  // Switch to admin page sub-view
+  document.getElementById('admin-panel-area').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <button class="btn-sm btn-outline" onclick="renderAdmin()">← Retour Admin</button>
+      <div class="section-title" style="margin-bottom:0">Gestion des ateliers</div>
+    </div>
+    <div class="section-sub">Définissez les agrès et leurs ateliers. Ces ateliers remplacent les critères par défaut dans la notation.</div>
+
+    <div class="admin-card" style="padding:12px">
+      <div class="param-title">➕ Ajouter un atelier</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <select class="param-select" id="new-agres-sel" style="flex:1;min-width:120px">
+          ${AGRES_LIST.map(a=>`<option value="${a}">${a}</option>`).join('')}
+        </select>
+        <input id="new-atelier-label" class="add-age-inp" placeholder="Nom de l'atelier" style="flex:2;min-width:160px;width:auto">
+        <button class="btn-sm btn-blue" style="padding:8px 16px" onclick="addAtelier()">Ajouter</button>
+      </div>
+    </div>
+
+    <div id="ateliers-list-area"></div>
+
+    <div class="admin-card" style="border-color:var(--red)">
+      <div class="admin-desc" style="margin-bottom:10px">⚠️ Supprimer TOUS les ateliers remet les critères par défaut (Rotation avant, Suspension...)</div>
+      <button class="btn-sm btn-red" style="width:100%;padding:10px" onclick="clearAllAteliers()">🗑 Supprimer tous les ateliers</button>
+    </div>`;
+  renderAteliersList();
+}
+
+function renderAteliersList() {
+  const area = document.getElementById('ateliers-list-area');
+  if (!area) return;
+  if (!window._ateliers.length) {
+    area.innerHTML = '<div class="empty-state" style="padding:20px">Aucun atelier défini.<br>Utilisez le formulaire ci-dessus pour en ajouter.</div>';
+    return;
+  }
+  // Group by agres
+  const byAgres = {};
+  for (const a of window._ateliers) {
+    if (!byAgres[a.agres]) byAgres[a.agres] = [];
+    byAgres[a.agres].push(a);
+  }
+  area.innerHTML = Object.entries(byAgres).map(([agres, items]) => `
+    <div class="admin-card" style="padding:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">${AGRES_ICONS[agres]||'⭐'}</span>
+        <div class="param-title" style="margin-bottom:0">${agres}</div>
+        <span style="font-size:12px;color:var(--text2);margin-left:4px">${items.length} atelier(s)</span>
+      </div>
+      ${items.map((a,i) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+          <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;color:var(--text2);min-width:20px">${i+1}.</span>
+          <input style="flex:1;border:none;background:transparent;font-family:'Barlow',sans-serif;font-size:13px;color:var(--text)" 
+            value="${esc(a.label)}" 
+            onchange="renameAtelier('${a.id}',this.value)">
+          <button class="del-btn" onclick="deleteAtelier('${a.id}')">×</button>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+function addAtelier() {
+  const agres = document.getElementById('new-agres-sel').value;
+  const label = document.getElementById('new-atelier-label').value.trim();
+  if (!label) { toast("Saisissez un nom d'atelier", true); return; }
+  const newAt = { id: uid(), agres, label };
+  window._ateliers.push(newAt);
+  saveAteliers();
+  document.getElementById('new-atelier-label').value = '';
+  renderAteliersList();
+  toast('✓ Atelier ajouté');
+}
+
+function deleteAtelier(aid) {
+  window._ateliers = window._ateliers.filter(a => a.id !== aid);
+  saveAteliers();
+  renderAteliersList();
+  toast('Atelier supprimé');
+}
+
+function renameAtelier(aid, val) {
+  const a = window._ateliers.find(x => x.id === aid);
+  if (a) { a.label = val; saveAteliers(); }
+}
+
+function clearAllAteliers() {
+  if (!confirm('Supprimer TOUS les ateliers et revenir aux critères par défaut ?')) return;
+  window._ateliers = [];
+  saveAteliers();
+  renderAteliersList();
+  toast('✓ Ateliers supprimés');
+}
+
+function saveAteliers() {
+  if (typeof window._fbSaveAteliers === 'function') window._fbSaveAteliers(window._ateliers);
+}
+
+function setSiteLock(locked) {
+  window._siteLocked = locked;
+  if (typeof window._fbSaveAdmin === 'function') window._fbSaveAdmin(locked);
+  updateLockBanner();
+  renderAdmin();
+  toast(locked ? '🔒 Site verrouillé' : '🔓 Site déverrouillé');
+}
+
+function adminResetScores() {
+  if (!confirm('Confirmer vous la suppression définitive de tous les résultats ?\n\nCette action est irréversible.')) return;
+  scores = {};
+  save();
+  activeGymnast = null;
+  document.getElementById('notation-form-area').innerHTML = '';
+  renderAdmin();
+  toast('✓ Résultats remis à zéro');
+}
+
+function adminLogout() {
+  window._isAdmin = false;
+  updateLockBanner();
+  renderAdminLogin();
+}
+
+function save() {
+  if (window._siteLocked && !window._isAdmin) { toast('🔒 Site verrouillé – saisie impossible', true); return; }
+  localStorage.setItem('agirs_teams',  JSON.stringify(teams));
+  localStorage.setItem('agirs_scores', JSON.stringify(scores));
+  localStorage.setItem('agirs_age_filters', JSON.stringify(ageFilters));
+  if (typeof window._fbSave === 'function') {
+    window._fbSave(teams, scores, ageFilters);
+  }
+}
+
+// helpers
+function allGymnasts() {
+  return teams.flatMap(t => t.gymnasts.map(g => ({...g, teamId:t.id, teamName:t.name, teamType:t.type})));
+}
+function gymKey(gid) { return gid; }
+function getScore(gid, key) {
+  const s = scores[gymKey(gid)];
+  return s && s[key] !== undefined ? s[key] : null;
+}
+function setScore(gid, key, val) {
+  if (!scores[gymKey(gid)]) scores[gymKey(gid)] = {};
+  scores[gymKey(gid)][key] = val;
+  save();
+}
+function getTotal(gid, teamType, agres) {
+  const discs = getDisciplines(teamType);
+  const filtered = agres && SECTION_AGRES[agres]
+    ? discs.filter(d => SECTION_AGRES[agres].includes(d.section))
+    : discs;
+  return filtered.reduce((s, d) => {
+    const v = getScore(gid, d.key);
+    return s + (v !== null ? v : 0);
+  }, 0);
+}
+function isComplete(gid, teamType) {
+  return getDisciplines(teamType).every(d => getScore(gid, d.key+'_note') !== null);
+}
+function filledCount(gid, teamType) {
+  return getDisciplines(teamType).filter(d => getScore(gid, d.key+'_note') !== null).length;
+}
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+// ══════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════
+function showPage(p) {
+  document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('page-'+p).classList.add('active');
+  const tabs = document.querySelectorAll('.nav-tab');
+  const map = {inscription:0, notation:1, resultats:2, avancement:3, admin:4};
+  if (tabs[map[p]]) tabs[map[p]].classList.add('active');
+  if (p === 'notation')   renderNotifPage();
+  if (p === 'resultats')  renderResults();
+  if (p === 'avancement') renderAvancement();
+  if (p === 'admin') { if (window._isAdmin) { document.getElementById('admin-login-area').style.display='none'; document.getElementById('admin-panel-area').style.display='block'; renderAdmin(); } else renderAdminLogin(); }
+}
+
+function toast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = err ? 'var(--red)' : 'var(--success)';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ══════════════════════════════════════════════════
+// INSCRIPTION PAGE
+// ══════════════════════════════════════════════════
+function renderInscription() {
+  const list = document.getElementById('teams-list');
+  if (!teams.length) {
+    list.innerHTML = '<div class="empty-state">Aucune équipe créée.<br>Commencez par créer une équipe.</div>';
+    return;
+  }
+  list.innerHTML = teams.map(t => `
+    <div class="team-card" id="tc_${t.id}" draggable="true" data-tid="${t.id}">
+      <div class="team-card-header" style="display:flex;align-items:center;gap:0;padding:10px 10px 10px 6px">
+        <div class="drag-handle" title="Glisser pour réorganiser">⠿</div>
+        <div style="flex:1">
+          <div class="team-card-name">${esc(t.name)}</div>
+          <div class="team-card-meta">${t.type} · ${t.gymnasts.length} gymnaste(s)</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-sm btn-outline" style="color:#fff;border-color:rgba(255,255,255,.4)" onclick="toggleTeam('${t.id}')">✏️ Modifier</button>
+          <button class="btn-sm" style="background:var(--red);color:#fff" onclick="deleteTeam('${t.id}')">🗑</button>
+        </div>
+      </div>
+      <div class="team-card-body" id="tb_${t.id}" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:120px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Nom de l'équipe</div>
+            <input style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;font-family:'Barlow',sans-serif" value="${esc(t.name)}" onchange="updateTeamName('${t.id}',this.value)">
+          </div>
+          <div style="flex:1;min-width:120px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Type</div>
+            <select class="param-select" style="width:100%" onchange="updateTeamType('${t.id}',this.value)">
+              <option ${t.type==='GAF'?'selected':''}>GAF</option>
+              <option ${t.type==='GAM'?'selected':''}>GAM</option>
+            </select>
+          </div>
+        </div>
+        <div id="gym-rows-${t.id}">
+          ${t.gymnasts.map(g => gymRowHtml(t.id, g)).join('')}
+        </div>
+        <button class="add-gym-btn" onclick="addGymnast('${t.id}')">＋ Ajouter une gymnaste</button>
+      </div>
+    </div>
+  `).join('');
+  initDragDrop();
+}
+
+function initDragDrop() {
+  const list = document.getElementById('teams-list');
+  let dragSrc = null;
+  list.querySelectorAll('.team-card').forEach(card => {
+    card.addEventListener('dragstart', e => { dragSrc=card; setTimeout(()=>card.classList.add('dragging'),0); e.dataTransfer.effectAllowed='move'; });
+    card.addEventListener('dragend', () => { card.classList.remove('dragging'); list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over')); dragSrc=null; });
+    card.addEventListener('dragover', e => { e.preventDefault(); if(card!==dragSrc){list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over'));card.classList.add('drag-over');} });
+    card.addEventListener('drop', e => { e.preventDefault(); if(dragSrc&&dragSrc!==card){const ids=[...list.querySelectorAll('.team-card')].map(c=>c.dataset.tid);const fi=ids.indexOf(dragSrc.dataset.tid);const ti=ids.indexOf(card.dataset.tid);const mv=teams.splice(fi,1)[0];teams.splice(ti,0,mv);save();renderInscription();} });
+    // Touch
+    const h=card.querySelector('.drag-handle'); if(!h) return;
+    h.addEventListener('touchstart',e=>{dragSrc=card;card.classList.add('dragging');},{passive:true});
+    h.addEventListener('touchmove',e=>{ e.preventDefault(); const y=e.touches[0].clientY; const els=[...list.querySelectorAll('.team-card:not(.dragging)')]; list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over')); const tgt=els.find(el=>{const r=el.getBoundingClientRect();return y>=r.top&&y<=r.bottom;}); if(tgt)tgt.classList.add('drag-over'); },{passive:false});
+    h.addEventListener('touchend',e=>{ card.classList.remove('dragging'); const tgt=list.querySelector('.team-card.drag-over'); list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over')); if(tgt&&tgt!==dragSrc){const ids=[...list.querySelectorAll('.team-card')].map(c=>c.dataset.tid);const fi=ids.indexOf(dragSrc.dataset.tid);const ti=ids.indexOf(tgt.dataset.tid);const mv=teams.splice(fi,1)[0];teams.splice(ti,0,mv);save();renderInscription();} dragSrc=null; });
+  });
+}
+
+function gymRowHtml(tid, g) {
+  return `<div class="gym-row" id="gr_${g.id}">
+    <input placeholder="Prénom" value="${esc(g.prenom)}" onchange="updateGym('${tid}','${g.id}','prenom',this.value)">
+    <input placeholder="Nom" value="${esc(g.nom)}" onchange="updateGym('${tid}','${g.id}','nom',this.value)">
+    <input class="gym-row-year" placeholder="2019" type="number" value="${g.annee||''}" onchange="updateGym('${tid}','${g.id}','annee',this.value)" style="width:60px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:6px 6px;font-size:13px;font-family:'Barlow',sans-serif;font-weight:600;color:var(--blue)">
+    <button class="del-btn" onclick="removeGymnast('${tid}','${g.id}')">×</button>
+  </div>`;
+}
+
+function showNewTeamForm() {
+  const area = document.getElementById('new-team-area');
+  area.innerHTML = `
+    <div class="new-team-form">
+      <div class="param-title">Nouvelle équipe</div>
+      <div class="new-team-inputs">
+        <input id="nt-name" placeholder="Nom de l'équipe (ex: AGIRS 1)">
+        <select class="param-select" id="nt-type">
+          <option>GAF</option>
+          <option>GAM</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-sm btn-green" style="flex:1;padding:10px" onclick="createTeam()">✔ Créer l'équipe</button>
+        <button class="btn-sm btn-outline" onclick="cancelNewTeam()">Annuler</button>
+      </div>
+    </div>`;
+}
+
+function cancelNewTeam() {
+  document.getElementById('new-team-area').innerHTML = '';
+}
+
+function createTeam() {
+  const name = document.getElementById('nt-name').value.trim();
+  const type = document.getElementById('nt-type').value;
+  if (!name) { toast('Entrez un nom d\'équipe', true); return; }
+  teams.push({id:uid(), name, type, gymnasts:[]});
+  save();
+  cancelNewTeam();
+  renderInscription();
+  toast('Équipe créée !');
+}
+
+function toggleTeam(tid) {
+  const body = document.getElementById('tb_'+tid);
+  body.style.display = body.style.display === 'none' ? 'block' : 'none';
+}
+
+function deleteTeam(tid) {
+  if (!confirm('Supprimer cette équipe et ses gymnastes ?')) return;
+  teams = teams.filter(t => t.id !== tid);
+  save();
+  renderInscription();
+  toast('Équipe supprimée');
+}
+
+function updateTeamName(tid, val) {
+  const t = teams.find(t => t.id === tid);
+  if (t) {
+    if (activeNotifGroup === t.name) activeNotifGroup = val;
+    t.name = val;
+    save();
+    renderInscription();
+    toggleTeam(tid);
+  }
+}
+function updateTeamType(tid, val) {
+  const t = teams.find(t => t.id === tid);
+  if (t) { t.type = val; save(); }
+}
+
+function addGymnast(tid) {
+  const t = teams.find(t => t.id === tid);
+  if (!t) return;
+  const g = {id:uid(), prenom:'', nom:'', annee:''};
+  t.gymnasts.push(g);
+  save();
+  const cont = document.getElementById('gym-rows-'+tid);
+  const div = document.createElement('div');
+  div.innerHTML = gymRowHtml(tid, g);
+  cont.appendChild(div.firstElementChild);
+}
+
+function updateGym(tid, gid, field, val) {
+  const t = teams.find(t => t.id === tid);
+  if (!t) return;
+  const g = t.gymnasts.find(g => g.id === gid);
+  if (!g) return;
+  g[field] = field === 'annee' ? (parseInt(val)||'') : val;
+  save();
+}
+
+function removeGymnast(tid, gid) {
+  const t = teams.find(t => t.id === tid);
+  if (!t) return;
+  t.gymnasts = t.gymnasts.filter(g => g.id !== gid);
+  save();
+  const el = document.getElementById('gr_'+gid);
+  if (el) el.remove();
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ══════════════════════════════════════════════════
+// NOTATION PAGE
+// ══════════════════════════════════════════════════
+function renderNotifPage() {
+  const groups = ['Tous', ...teams.map(t => t.name)];
+  const filter = document.getElementById('notif-group-filter');
+  filter.innerHTML = groups.map(g =>
+    `<button class="pill ${activeNotifGroup===g?'active':''}" onclick="setNotifGroup('${esc(g)}')">${esc(g)}</button>`
+  ).join('');
+  renderGymnastList();
+}
+
+function setNotifGroup(g) {
+  activeNotifGroup = g;
+  activeGymnast = null;
+  document.getElementById('notation-form-area').innerHTML = '';
+  renderNotifPage();
+}
+
+function renderGymnastList() {
+  const all = allGymnasts();
+  const filtered = activeNotifGroup === 'Tous' ? all : all.filter(g => g.teamName === activeNotifGroup);
+  const list = document.getElementById('gymnast-list');
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty-state">Aucune gymnaste dans cette équipe.<br>Ajoutez des gymnastes dans l\'onglet Équipes.</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(g => {
+    const fullName = [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)';
+    const discs = getDisciplines(g.teamType);
+    const fc = filledCount(g.id, g.teamType);
+    const complete = isComplete(g.id, g.teamType);
+    const dots = discs.map((_,i) =>
+      `<div class="dot ${complete?'full':i<fc?'on':''}"></div>`
+    ).join('');
+    // Compute total from _note/_diff/_faute keys
+    const total = discs.reduce((s,d) => {
+      const nd = getScore(g.id, d.key+'_note');
+      const dv = getScore(g.id, d.key+'_diff');
+      const fd = getScore(g.id, d.key+'_faute');
+      if (nd===null) return s;
+      return s + Math.max(0, Math.round(((parseFloat(nd)+(dv?parseFloat(dv):0))-(fd?parseFloat(fd):0))*10)/10);
+    }, 0);
+    const hasAny = discs.some(d => getScore(g.id, d.key+'_note') !== null);
+    return `<div class="gymnast-item ${activeGymnast===g.id?'sel':''}" onclick="selectGymnast('${g.id}')">
+      <div style="flex:1;min-width:0">
+        <div class="gym-name">${esc(fullName)}</div>
+        <div class="gym-meta">${esc(g.teamName)} · ${g.annee||'?'}</div>
+        <div class="dots">${dots}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="gym-score ${complete?'done':!hasAny?'empty':''}">${hasAny ? Math.round(total*10)/10 : '–'}</div>
+        <div class="score-lbl">${complete?'✓ Complet':fc+'/'+discs.length}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectGymnast(gid) {
+  activeGymnast = gid;
+  renderGymnastList();
+  renderNotationForm(gid);
+  setTimeout(() => {
+    document.getElementById('notation-form-area').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }, 60);
+}
+
+function renderNotationForm(gid) {
+  const g = allGymnasts().find(x => x.id === gid);
+  if (!g) return;
+  const discs = getDisciplines(g.teamType);
+  const fullName = [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)';
+
+  // group by section
+  const sections = {};
+  for (const d of discs) {
+    if (!sections[d.section]) sections[d.section] = [];
+    sections[d.section].push(d);
+  }
+
+  const sectionIcons = {Sol:'🤸', Barres:'🔵', Poutre:'⚖️', Anneaux:'⭕', Saut:'🦘'};
+
+  let html = `<div class="notif-wrap">
+    <div class="notif-header">
+      <div class="notif-name">${esc(fullName)}</div>
+      <div class="group-badge">${esc(g.teamName)} · ${g.annee||'?'}</div>
+    </div>`;
+
+  // Build note options 0-10
+  const noteOpts = (cur) => ['',0,1,2,3,4,5,6,7,8,9,10].map(v=>
+    `<option value="${v}" ${String(cur)===String(v)?'selected':''}>${v===''?'–':v}</option>`).join('');
+  // Build note difficulté options 0-3.6 by 0.1
+  const diffRange = [''];
+  for(let i=0;i<=36;i++) diffRange.push(Math.round(i*10)/100);
+  const diffOpts = (cur) => diffRange.map(v=>
+    `<option value="${v}" ${String(cur)===String(v)?'selected':''}>${v===''?'–':parseFloat(v).toFixed(1)}</option>`).join('');
+  // Build faute options 0-4 by 0.1
+  const fauteRange = [''];
+  for(let i=0;i<=40;i++) fauteRange.push(Math.round(i*10)/100);
+  const fauteOpts = (cur) => fauteRange.map(v=>
+    `<option value="${v}" ${String(cur)===String(v)?'selected':''}>${v===''?'–':v}</option>`).join('');
+
+  for (const [sec, items] of Object.entries(sections)) {
+    const secFinalTotal = items.reduce((s,d) => {
+      const nd = getScore(gid, d.key+'_note');
+      const dv = getScore(gid, d.key+'_diff');
+      const fd = getScore(gid, d.key+'_faute');
+      if (nd===null) return s;
+      return s + Math.max(0, Math.round(((nd+(dv||0))-(fd||0))*10)/10);
+    }, 0);
+    const icon = sectionIcons[sec]||'';
+    html += `<div class="disc-block">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="disc-title" style="margin-bottom:0">${icon} ${sec}</div>
+        <div style="display:flex;gap:6px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--text2);text-transform:uppercase;width:58px;text-align:center">Note départ</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:#1a6fc4;text-transform:uppercase;width:58px;text-align:center">Note diff.</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--red);text-transform:uppercase;width:58px;text-align:center">Faute</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--success);text-transform:uppercase;width:58px;text-align:center">= Note</div>
+        </div>
+      </div>
+      ${items.map(d => {
+        const nv = getScore(gid, d.key+'_note');
+        const dv = getScore(gid, d.key+'_diff');
+        const fv = getScore(gid, d.key+'_faute');
+        const nNum = nv !== null ? parseFloat(nv) : null;
+        const dNum = dv !== null ? parseFloat(dv) : 0;
+        const fNum = fv !== null ? parseFloat(fv) : 0;
+        const tot = (nNum!==null) ? Math.max(0,Math.round(((nNum+dNum)-fNum)*10)/10) : null;
+        return `<div class="criteria-row">
+          <div class="crit-label">${d.label}</div>
+          <div class="crit-cols">
+            <select class="crit-select" onchange="setCritScore('${gid}','${d.key}','note',this.value)">${noteOpts(nv!==null?nv:'')}</select>
+            <select class="crit-select" style="color:#1a6fc4" onchange="setCritScore('${gid}','${d.key}','diff',this.value)">${diffOpts(dv!==null?dv:'')}</select>
+            <select class="crit-select" style="color:var(--red)" onchange="setCritScore('${gid}','${d.key}','faute',this.value)">${fauteOpts(fv!==null?fv:'')}</select>
+            <div class="crit-total ${tot===null?'empty':''}" id="ct_${gid}_${d.key}">${tot!==null?tot:'–'}</div>
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="subtotal-row">
+        <div class="subtotal-lbl">Sous-total</div>
+        <div class="subtotal-val" id="st_${gid}_${sec.replace(/\W/g,'_')}">${secFinalTotal}</div>
+      </div>
+    </div>`;
+  }
+
+  const grandTotal = discs.reduce((s,d) => {
+    const nd = getScore(gid, d.key+'_note');
+    const dv = getScore(gid, d.key+'_diff');
+    const fd = getScore(gid, d.key+'_faute');
+    if (nd===null) return s;
+    return s + Math.max(0, Math.round(((nd+(dv||0))-(fd||0))*10)/10);
+  }, 0);
+  html += `<div class="grand-bar">
+    <div class="grand-lbl">Total général</div>
+    <div class="grand-val" id="gt_${gid}">${Math.round(grandTotal*10)/10}</div>
+  </div>
+  <button class="save-btn" onclick="saveGymnast('${gid}')">✔ Enregistrer</button>
+  </div>`;
+
+  document.getElementById('notation-form-area').innerHTML = html;
+}
+
+function setCritScore(gid, key, type, val) {
+  const storeKey = key + '_' + type;
+  if (val === '') {
+    if (scores[gymKey(gid)]) delete scores[gymKey(gid)][storeKey];
+  } else {
+    setScore(gid, storeKey, parseFloat(val));
+  }
+  // Update this row's total
+  const nd = getScore(gid, key+'_note');
+  const dv = getScore(gid, key+'_diff');
+  const fd = getScore(gid, key+'_faute');
+  const nNum = nd !== null ? parseFloat(nd) : null;
+  const dNum = dv !== null ? parseFloat(dv) : 0;
+  const fNum = fd !== null ? parseFloat(fd) : 0;
+  const tot = nNum !== null ? Math.max(0, Math.round(((nNum+dNum)-fNum)*10)/10) : null;
+  const ctEl = document.getElementById(`ct_${gid}_${key}`);
+  if (ctEl) { ctEl.textContent = tot !== null ? tot : '–'; ctEl.className = 'crit-total' + (tot===null?' empty':''); }
+  // Update section subtotal
+  const discs = getDisciplines(allGymnasts().find(x=>x.id===gid)?.teamType||'');
+  const sections = {};
+  for (const dd of discs) { if(!sections[dd.section]) sections[dd.section]=[]; sections[dd.section].push(dd); }
+  for (const [sec, items] of Object.entries(sections)) {
+    if (items.some(x => x.key === key)) {
+      const secTot = items.reduce((s,dd) => {
+        const n=getScore(gid,dd.key+'_note'); const dv2=getScore(gid,dd.key+'_diff'); const f=getScore(gid,dd.key+'_faute');
+        if(n===null) return s; return s+Math.max(0,Math.round(((parseFloat(n)+(dv2?parseFloat(dv2):0))-(f?parseFloat(f):0))*10)/10);
+      },0);
+      const stEl = document.getElementById(`st_${gid}_${sec.replace(/\W/g,'_')}`);
+      if (stEl) stEl.textContent = Math.round(secTot*10)/10;
+    }
+  }
+  // Update grand total
+  const grandTot = discs.reduce((s,dd) => {
+    const n=getScore(gid,dd.key+'_note'); const dv2=getScore(gid,dd.key+'_diff'); const f=getScore(gid,dd.key+'_faute');
+    if(n===null) return s; return s+Math.max(0,Math.round(((parseFloat(n)+(dv2?parseFloat(dv2):0))-(f?parseFloat(f):0))*10)/10);
+  },0);
+  const gtEl = document.getElementById(`gt_${gid}`);
+  if (gtEl) gtEl.textContent = Math.round(grandTot*10)/10;
+}
+
+function saveGymnast(gid) {
+  save();
+  toast('✓ Notes enregistrées !');
+  renderGymnastList();
+}
+
+function setInlineScore(gid, key, val) {
+  if (val === '') { if (scores[gymKey(gid)]) delete scores[gymKey(gid)][key]; }
+  else { setScore(gid, key, parseFloat(val)); }
+  save();
+  renderGymnastList();
+}
+
+// ══════════════════════════════════════════════════
+// RÉSULTATS
+// ══════════════════════════════════════════════════
+function renderResults() {
+  const type  = document.getElementById('res-type').value;
+  const agres = document.getElementById('res-agres').value;
+  const topN  = parseInt(document.getElementById('res-top-n').value)||4;
+
+  // show/hide age config
+  const isAge = type.includes('age');
+  document.getElementById('res-age-config').style.display = isAge ? 'block' : 'none';
+  document.getElementById('res-top-row').style.display = type.includes('equipe') ? 'flex' : 'none';
+
+  if (isAge) renderAgeFilterTags();
+
+  const all = allGymnasts();
+  const content = document.getElementById('results-content');
+
+  if (!all.length) {
+    content.innerHTML = '<div class="empty-state">Aucune gymnaste enregistrée.</div>';
+    return;
+  }
+
+  if (type === 'indiv-global') {
+    content.innerHTML = renderIndivGlobal(all, agres);
+  } else if (type === 'indiv-age') {
+    content.innerHTML = renderIndivByAge(all, agres);
+  } else if (type === 'equipe-global') {
+    content.innerHTML = renderEquipeGlobal(all, agres, topN);
+  } else if (type === 'equipe-age') {
+    content.innerHTML = renderEquipeByAge(all, agres, topN);
+  }
+}
+
+function gymScore(g, agres) {
+  return getTotal(g.id, g.teamType, agres);
+}
+
+function sortedWithRank(arr) {
+  arr.sort((a,b) => b.score - a.score);
+  let rank = 1;
+  return arr.map((item,i) => {
+    if (i > 0 && item.score < arr[i-1].score) rank = i+1;
+    return {...item, rank};
+  });
+}
+
+function renderIndivGlobal(all, agres) {
+  const items = all.map(g => ({
+    name: [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)',
+    team: g.teamName, annee: g.annee, score: gymScore(g, agres)
+  }));
+  const withScore = items.filter(x => x.score > 0);
+  if (!withScore.length) return '<div class="empty-state">Aucun score enregistré.</div>';
+  const ranked = sortedWithRank(withScore);
+  const max = ranked[0].score;
+  return '<div class="section-label">Classement individuel général – ' + ranked.length + ' gymnaste(s) noté(s)</div>' +
+    ranked.map(r => resultItemHtml(r, max)).join('');
+}
+
+function normalizeAnnee(v) { const n = parseInt(v); return isNaN(n) ? null : n; }
+
+function renderIndivByAge(all, agres) {
+  if (!ageFilters.length) return '<div class="empty-state">Ajoutez des années d\'âge dans les paramètres ci-dessus.</div>';
+  return ageFilters.map(yr => {
+    const yrN = normalizeAnnee(yr);
+    const items = all
+      .filter(g => normalizeAnnee(g.annee) === yrN)
+      .map(g => ({
+        name: [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)',
+        team: g.teamName, annee: g.annee, score: gymScore(g, agres)
+      }));
+    if (!items.length) return `<div class="section-label">Année ${yr}</div><div class="empty-state" style="padding:12px">Aucune gymnaste avec cette année d'âge.</div>`;
+    const ranked = sortedWithRank(items);
+    const max = ranked[0].score || 1;
+    return `<div class="section-label">Année ${yr} – ${items.length} gymnaste(s)</div>` +
+      ranked.map(r => resultItemHtml(r, max)).join('');
+  }).join('');
+}
+
+function renderEquipeGlobal(all, agres, topN) {
+  const byTeam = {};
+  for (const g of all) {
+    if (!byTeam[g.teamName]) byTeam[g.teamName] = {name:g.teamName, gymnasts:[]};
+    byTeam[g.teamName].gymnasts.push(g);
+  }
+  const teamScores = Object.values(byTeam).map(t => {
+    const scores = t.gymnasts
+      .map(g => gymScore(g, agres))
+      .sort((a,b) => b-a)
+      .slice(0, topN);
+    const total = scores.reduce((s,v) => s+v, 0);
+    return {name:t.name, total, count:scores.length, scores};
+  }).filter(t => t.total > 0);
+  const ranked = sortedWithRank(teamScores.map(t => ({...t, score:t.total})));
+  if (!ranked.length) return '<div class="empty-state">Aucun score d\'équipe.</div>';
+  const max = ranked[0].score;
+  return '<div class="section-label">Classement par équipe – Top '+topN+' notes retenues</div>' +
+    ranked.map(r => teamItemHtml(r, max, topN, agres)).join('');
+}
+
+function renderEquipeByAge(all, agres, topN) {
+  if (!ageFilters.length) return '<div class="empty-state">Ajoutez des années d\'âge dans les paramètres ci-dessus.</div>';
+  return ageFilters.map(yr => {
+    const filtered = all.filter(g => normalizeAnnee(g.annee) === normalizeAnnee(yr));
+    const byTeam = {};
+    for (const g of filtered) {
+      if (!byTeam[g.teamName]) byTeam[g.teamName] = {name:g.teamName, gymnasts:[]};
+      byTeam[g.teamName].gymnasts.push(g);
+    }
+    const teamScores = Object.values(byTeam).map(t => {
+      const sc = t.gymnasts.map(g => gymScore(g, agres)).sort((a,b)=>b-a).slice(0,topN);
+      return {name:t.name, score:sc.reduce((s,v)=>s+v,0), scores:sc, count:sc.length};
+    }).filter(t => t.score > 0);
+    const ranked = sortedWithRank(teamScores);
+    const max = ranked.length ? ranked[0].score || 1 : 1;
+    return `<div class="section-label">Équipes – Année ${yr}</div>` +
+      (ranked.length
+        ? ranked.map(r => teamItemHtml(r, max, topN, agres)).join('')
+        : '<div class="empty-state" style="padding:12px">Aucune équipe avec des gymnastes de cette année.</div>');
+  }).join('');
+}
+
+function resultItemHtml(r, max) {
+  const medal = r.rank===1?'🥇':r.rank===2?'🥈':r.rank===3?'🥉':r.rank;
+  const cls = r.rank===1?'r1':r.rank===2?'r2':r.rank===3?'r3':'rx';
+  const pct = Math.round((r.score/max)*100);
+  return `<div class="result-item">
+    <div class="rank-num ${cls}">${medal}</div>
+    <div class="result-info">
+      <div class="result-name">${esc(r.name)}</div>
+      <div class="result-meta">${esc(r.team)} · ${r.annee||'?'}</div>
+      <div class="bar-wrap"><div class="bar-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div class="result-score">${r.score}</div>
+  </div>`;
+}
+
+function teamItemHtml(r, max, topN, agres) {
+  const medal = r.rank===1?'🥇':r.rank===2?'🥈':r.rank===3?'🥉':r.rank;
+  const pct = Math.round((r.score/max)*100);
+  const agresLabel = agres === 'total' ? 'total général' : agres;
+  return `<div class="team-item">
+    <div class="team-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="rank-num ${r.rank<=3?'r'+r.rank:'rx'}" style="width:28px;font-size:20px">${medal}</div>
+        <div class="team-name-big">${esc(r.name)}</div>
+      </div>
+      <div class="team-score-big">${r.score}</div>
+    </div>
+    <div class="bar-wrap" style="margin-bottom:6px"><div class="bar-fill" style="width:${pct}%"></div></div>
+    <div class="team-detail">Top ${topN} scores (${agresLabel}) : ${r.scores.join(' + ')} = ${r.score}</div>
+  </div>`;
+}
+
+// Age filters
+function renderAgeFilterTags() {
+  const el = document.getElementById('age-tags-list');
+  el.innerHTML = ageFilters.map(yr =>
+    `<button class="age-tag" onclick="removeAgeFilter(${yr})">${yr} <span class="x">×</span></button>`
+  ).join('') + (ageFilters.length===0 ? '<span style="font-size:12px;color:var(--text2)">Aucune année ajoutée</span>' : '');
+}
+
+function addAgeFilter() {
+  const inp = document.getElementById('add-age-inp');
+  const yr = parseInt(inp.value);
+  if (!yr || yr < 2000 || yr > 2030) { toast('Année invalide', true); return; }
+  if (ageFilters.includes(yr)) { toast('Déjà ajoutée', true); return; }
+  if (ageFilters.length >= 5) { toast('Maximum 5 années', true); return; }
+  ageFilters.push(yr);
+  ageFilters.sort((a,b)=>b-a);
+  save();
+  inp.value = '';
+  renderResults();
+}
+
+function removeAgeFilter(yr) {
+  ageFilters = ageFilters.filter(x => x !== yr);
+  save();
+  renderResults();
+}
+
+// Export CSV
+function exportCSV() {
+  const all = allGymnasts();
+  const allDiscs = [...new Set([...DISC_GAF,...DISC_GAM].map(d=>d.key))];
+  let csv = 'Prénom,Nom,Année,Équipe,' + allDiscs.join(',') + ',Total\n';
+  for (const g of all) {
+    const t = getTotal(g.id, g.teamType);
+    if (t === 0) continue;
+    const row = [g.prenom, g.nom, g.annee, g.teamName,
+      ...allDiscs.map(k => { const v = getScore(g.id, k); return v !== null ? v : ''; }),
+      t];
+    csv += row.join(',') + '\n';
+  }
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='agirs-notation.csv'; a.click();
+}
+
+// ══════════════════════════════════════════════════
+// AVANCEMENT
+// ══════════════════════════════════════════════════
+function renderAvancement() {
+  const all = allGymnasts();
+  const done = all.filter(g => isComplete(g.id, g.teamType)).length;
+  const started = all.filter(g => filledCount(g.id, g.teamType) > 0 && !isComplete(g.id, g.teamType)).length;
+  document.getElementById('stat-grid').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${done}</div><div class="stat-lbl">Terminés</div></div>
+    <div class="stat-card"><div class="stat-num">${started}</div><div class="stat-lbl">En cours</div></div>
+    <div class="stat-card"><div class="stat-num">${all.length-done-started}</div><div class="stat-lbl">En attente</div></div>
+    <div class="stat-card"><div class="stat-num">${all.length}</div><div class="stat-lbl">Total</div></div>
+  `;
+  document.getElementById('group-prog-list').innerHTML = teams.map(t => {
+    const members = all.filter(g => g.teamName === t.name);
+    const doneT = members.filter(g => isComplete(g.id, g.teamType)).length;
+    const pct = members.length ? Math.round((doneT/members.length)*100) : 0;
+    return `<div class="prog-row">
+      <div class="prog-lbl">${esc(t.name)}</div>
+      <div class="prog-bar-wrap"><div class="prog-bar" style="width:${pct}%"></div></div>
+      <div class="prog-pct">${doneT}/${members.length}</div>
+    </div>`;
+  }).join('');
+}
+
+function confirmReset() {
+  if (!confirm('Réinitialiser TOUTES les notes ? Action irréversible.')) return;
+  scores = {};
+  save();
+  activeGymnast = null;
+  document.getElementById('notation-form-area').innerHTML = '';
+  renderGymnastList();
+  renderAvancement();
+  toast('Notes réinitialisées');
+}
+
+// ══════════════════════════════════════════════════
+// DONNÉES PAR DÉFAUT (concours janvier)
+// ══════════════════════════════════════════════════
+const DEFAULT_TEAMS = [
+  {id:'t_e1', name:'E1', type:'GAF', gymnasts:[
+    {id:'g_e1_1',prenom:'Esmé',       nom:'Altuntas',         annee:2020},
+    {id:'g_e1_2',prenom:'Lahna',      nom:'Moussaoui',        annee:2019},
+    {id:'g_e1_3',prenom:'Léna',       nom:'Bazizi',           annee:2020},
+    {id:'g_e1_4',prenom:'Sarah',      nom:'Mendes',           annee:2020},
+    {id:'g_e1_5',prenom:'Giuliana',   nom:'Vellard Zampa',    annee:2020},
+    {id:'g_e1_6',prenom:'Romane',     nom:'Regard',           annee:2019},
+    {id:'g_e1_7',prenom:'Jasmine',    nom:'Tarchouni',        annee:2020},
+  ]},
+  {id:'t_e2', name:'E2', type:'GAF', gymnasts:[
+    {id:'g_e2_1',prenom:'Saona',      nom:'Bardet',           annee:2020},
+    {id:'g_e2_2',prenom:'Nisrine',    nom:'El Alami',         annee:2019},
+    {id:'g_e2_3',prenom:'Yasmine',    nom:'Feguiri',          annee:2019},
+    {id:'g_e2_4',prenom:'Besma',      nom:'Mazari',           annee:2020},
+    {id:'g_e2_5',prenom:'Ella',       nom:'Minot',            annee:2020},
+    {id:'g_e2_6',prenom:'Léana',      nom:'Siché',            annee:2019},
+  ]},
+  {id:'t_e3', name:'E3', type:'GAF', gymnasts:[
+    {id:'g_e3_1',prenom:'Méline',     nom:'Cerf',             annee:2020},
+    {id:'g_e3_2',prenom:'Romy',       nom:'Cifci',            annee:2019},
+    {id:'g_e3_3',prenom:'Sana',       nom:'Gadada',           annee:2019},
+    {id:'g_e3_4',prenom:'Julie',      nom:'Mathieu',          annee:2020},
+    {id:'g_e3_5',prenom:'Mainah',     nom:'Nakkai',           annee:2019},
+    {id:'g_e3_6',prenom:'Saina',      nom:'Said',             annee:2019},
+    {id:'g_e3_7',prenom:'Tess',       nom:'Marta',            annee:2019},
+    {id:'g_e3_8',prenom:'Charlotte',  nom:'Mingardon',        annee:2019},
+  ]},
+  {id:'t_e4', name:'E4', type:'GAF', gymnasts:[
+    {id:'g_e4_1',prenom:'Aline',      nom:'Adouni',           annee:2020},
+    {id:'g_e4_2',prenom:'Emma',       nom:'Dubost',           annee:2019},
+    {id:'g_e4_3',prenom:'Jade',       nom:'Dubost',           annee:2019},
+    {id:'g_e4_4',prenom:'Inès',       nom:'Hassani',          annee:2019},
+    {id:'g_e4_5',prenom:'Olivia',     nom:'Lopez',            annee:2019},
+    {id:'g_e4_6',prenom:'Maissane',   nom:'Raymond',          annee:2020},
+    {id:'g_e4_7',prenom:'Mila',       nom:'Simonovic',        annee:2019},
+  ]},
+  {id:'t_e5', name:'E5', type:'GAF', gymnasts:[
+    {id:'g_e5_1',prenom:'Wendy',      nom:'Antoine Poizat',   annee:2020},
+    {id:'g_e5_2',prenom:'Lizzy',      nom:'Marescaux',        annee:2019},
+    {id:'g_e5_3',prenom:'Alix',       nom:'Bernard Virieux',  annee:2020},
+    {id:'g_e5_4',prenom:'Michaela',   nom:'Mendes',           annee:2019},
+    {id:'g_e5_5',prenom:'Clémentine', nom:'Perrussel',        annee:2019},
+    {id:'g_e5_6',prenom:'Capucine',   nom:'Cancade',          annee:2019},
+    {id:'g_e5_7',prenom:'Charlize',   nom:'Valente',          annee:2020},
+    {id:'g_e5_8',prenom:'Melina',     nom:'Poyet',            annee:2020},
+  ]},
+  {id:'t_e6', name:'E6', type:'GAF', gymnasts:[
+    {id:'g_e6_1',prenom:'Maliah',     nom:'Keita',            annee:2020},
+    {id:'g_e6_2',prenom:'Lina',       nom:'Barhoumi',         annee:2020},
+    {id:'g_e6_3',prenom:'Nelya',      nom:'Belmiloud',        annee:''},
+    {id:'g_e6_4',prenom:'Margaux',    nom:'Afonso',           annee:2020},
+    {id:'g_e6_5',prenom:'Maria',      nom:'Mazari',           annee:2017},
+    {id:'g_e6_6',prenom:'Manon',      nom:'Dumont',           annee:2019},
+  ]},
+  {id:'t_e7', name:'E7', type:'GAF', gymnasts:[
+    {id:'g_e7_1',prenom:'Eline',      nom:'Ancian',           annee:2019},
+    {id:'g_e7_2',prenom:'Nelhya',     nom:'Arfaoui',          annee:2019},
+    {id:'g_e7_3',prenom:'Alba',       nom:'Berton',           annee:2020},
+    {id:'g_e7_4',prenom:'Kacie',      nom:'Bustos',           annee:2020},
+    {id:'g_e7_5',prenom:'Camille',    nom:'Casoli',           annee:2019},
+    {id:'g_e7_6',prenom:'Julia',      nom:'Lefebvre',         annee:2019},
+    {id:'g_e7_7',prenom:'Ava',        nom:'Micheland',        annee:2019},
+  ]},
+  {id:'t_e8', name:'E8', type:'GAF', gymnasts:[
+    {id:'g_e8_1',prenom:'Mary-Lou',   nom:'Bal',              annee:2019},
+    {id:'g_e8_2',prenom:'Sophie',     nom:'Charvet',          annee:2020},
+    {id:'g_e8_3',prenom:'Luna',       nom:'Chavand',          annee:2020},
+    {id:'g_e8_4',prenom:'Ambre',      nom:'Gouilloud-Arraïs', annee:2019},
+    {id:'g_e8_5',prenom:'Violette',   nom:'Gouilloud-Arraïs', annee:2019},
+    {id:'g_e8_6',prenom:'Emma Marie', nom:'Lareure',          annee:2020},
+    {id:'g_e8_7',prenom:'Rose',       nom:'Le Breton',        annee:2019},
+  ]},
+  {id:'t_e9', name:'E9', type:'GAF', gymnasts:[
+    {id:'g_e9_1',prenom:'Léana',      nom:'Serre',            annee:2020},
+    {id:'g_e9_2',prenom:'Olivia',     nom:'Baud',             annee:2019},
+    {id:'g_e9_3',prenom:'Kiara',      nom:'Gabet',            annee:2020},
+    {id:'g_e9_4',prenom:'Joy',        nom:'Bouttier',         annee:2019},
+    {id:'g_e9_5',prenom:'Alba',       nom:'Marta',            annee:2020},
+    {id:'g_e9_6',prenom:'Manaé',      nom:'Debierre',         annee:2019},
+    {id:'g_e9_7',prenom:'Jade',       nom:'Faure',            annee:2019},
+    {id:'g_e9_8',prenom:'Layana',     nom:'Fouley',           annee:2020},
+  ]},
+  {id:'t_eb10', name:'EB10', type:'GAM', gymnasts:[
+    {id:'g_eb10_1',prenom:'Evan',     nom:'Tranchant',        annee:2019},
+    {id:'g_eb10_2',prenom:'Noah',     nom:'Tranchant',        annee:2019},
+    {id:'g_eb10_3',prenom:'Samuel',   nom:'Favre',            annee:2020},
+    {id:'g_eb10_4',prenom:'Abel',     nom:'Bernard Virieux',  annee:2020},
+    {id:'g_eb10_5',prenom:'Ilyan',    nom:'Chastanier',       annee:2020},
+    {id:'g_eb10_6',prenom:'Mael',     nom:'Combier',          annee:2019},
+  ]},
+];
+
+// ══════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════
+// Migration : corriger les clés scores avec double préfixe g_g_
+(function migrateScores() {
+  let changed = false;
+  const newScores = {};
+  for (const [k, v] of Object.entries(scores)) {
+    if (k.startsWith('g_g_')) {
+      newScores[k.slice(2)] = v; // enlève le premier g_
+      changed = true;
+    } else {
+      newScores[k] = v;
+    }
+  }
+  if (changed) { scores = newScores; localStorage.setItem('agirs_scores', JSON.stringify(scores)); }
+})();
+
+// Charger les équipes par défaut si localStorage vide
+if (!teams.length) {
+  teams = DEFAULT_TEAMS;
+  save();
+}
+renderInscription();
+</script>
+</body>
+</html>
