@@ -96,7 +96,11 @@ onSnapshot(ATELIERS_DOC, (snap) => {
   try {
     const active = document.querySelector('.page.active');
     if (active && active.id === 'page-notation' && typeof renderNotifPage === 'function') renderNotifPage();
-    if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
+    // Page « Gestion des ateliers » ouverte : on la rafraîchit sans la quitter, et pas pendant une saisie
+    if (document.getElementById('ateliers-list-area')) {
+      const ae = document.activeElement;
+      if (!(ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT') && document.getElementById('admin-panel-area').contains(ae))) renderAteliersList();
+    } else if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
   } catch(e) {}
 });
 
@@ -105,7 +109,7 @@ onSnapshot(ADMIN_DOC, (snap) => {
   if (!snap.exists()) return;
   window._siteLocked = snap.data().locked || false;
   if (typeof updateLockBanner === 'function') updateLockBanner();
-  if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
+  if (typeof renderAdmin === 'function' && window._isAdmin && !document.getElementById('ateliers-list-area')) renderAdmin();
 });
 
 // Real-time sync scores (un document par gymnaste)
@@ -546,9 +550,11 @@ const SECTION_AGRES = {
 // Niveau = famille d'ateliers. '' = « Sans niveau » (ateliers créés avant les niveaux)
 function niv(v) { return (v||'').trim(); }
 function nivLabel(v) { return niv(v) || 'Sans niveau'; }
+window._pendingNiveaux = window._pendingNiveaux || [];
 function getNiveaux() {
   const set = [];
   for (const a of (window._ateliers||[])) { const n = niv(a.niveau); if (n && !set.includes(n)) set.push(n); }
+  for (const n of window._pendingNiveaux) if (n && !set.includes(n)) set.push(n);
   return set;
 }
 function teamNiveauOf(gid) {
@@ -665,6 +671,14 @@ function showAteliersPage() {
     </div>
     <div class="section-sub">Chaque niveau est une famille d'ateliers. Les gymnastes sont notés avec les ateliers du niveau de leur équipe.</div>
 
+    <div class="admin-card" style="padding:12px;border:2px solid var(--gold)">
+      <div class="param-title">🏷️ Créer un nouveau niveau</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="create-niveau-inp" class="add-age-inp" placeholder="Nom du niveau (ex : 8 à 10 ans)" style="flex:2;min-width:180px;width:auto" onkeydown="if(event.key==='Enter')createNiveau()">
+        <button class="btn-sm btn-blue" style="padding:8px 16px" onclick="createNiveau()">Créer</button>
+      </div>
+    </div>
+
     <div class="admin-card" style="padding:12px">
       <div class="param-title">➕ Ajouter un atelier</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
@@ -758,6 +772,19 @@ function renderAteliersList() {
   }).join('');
 }
 
+function createNiveau() {
+  const inp = document.getElementById('create-niveau-inp');
+  const n = niv(inp.value);
+  if (!n) { toast('Saisissez le nom du niveau', true); inp.focus(); return; }
+  if (getNiveaux().includes(n)) { toast('Ce niveau existe déjà', true); return; }
+  window._pendingNiveaux.push(n);
+  window._lastNiveau = n;
+  window._editNiveau = n;
+  inp.value = '';
+  renderAteliersList();
+  const i = document.getElementById('edit-atelier-label'); if (i) { i.scrollIntoView({block:'center'}); i.focus(); }
+  toast('✓ Niveau « ' + n + ' » créé – ajoutez ses ateliers');
+}
 function toggleEditNiveau(n) {
   n = niv(n);
   window._editNiveau = (window._editNiveau === n) ? null : n;
@@ -781,8 +808,9 @@ function deleteNiveau(n) {
   n = niv(n);
   const ats = window._ateliers.filter(a => niv(a.niveau) === n);
   const nbTeams = teams.filter(t => niv(t.niveau) === n).length;
-  if (!confirm(`Supprimer le niveau « ${nivLabel(n)} » et ses ${ats.length} atelier(s) ?\n\n${nbTeams} équipe(s) de ce niveau ne seront plus notées sur ces ateliers : leurs notes ne compteront plus dans les totaux ni dans le palmarès.\n\nAction irréversible.`)) return;
+  if ((ats.length || nbTeams) && !confirm(`Supprimer le niveau « ${nivLabel(n)} » et ses ${ats.length} atelier(s) ?\n\n${nbTeams} équipe(s) de ce niveau ne seront plus notées sur ces ateliers : leurs notes ne compteront plus dans les totaux ni dans le palmarès.\n\nAction irréversible.`)) return;
   window._ateliers = window._ateliers.filter(a => niv(a.niveau) !== n);
+  window._pendingNiveaux = window._pendingNiveaux.filter(x => x !== n);
   if (window._editNiveau === n) window._editNiveau = null;
   if (window._lastNiveau === n) window._lastNiveau = '';
   saveAteliers();
@@ -797,6 +825,7 @@ function renameNiveau(oldN, newN) {
   if (oldN === newN) return;
   if (newN && getNiveaux().includes(newN) && !confirm(`Le niveau « ${newN} » existe déjà. Fusionner les deux niveaux ?`)) { renderAteliersList(); return; }
   for (const a of window._ateliers) if (niv(a.niveau) === oldN) a.niveau = newN;
+  window._pendingNiveaux = window._pendingNiveaux.map(x => x === oldN ? newN : x).filter(Boolean);
   let teamsChanged = false;
   for (const t of teams) if (niv(t.niveau) === oldN) { t.niveau = newN; teamsChanged = true; }
   saveAteliers();
