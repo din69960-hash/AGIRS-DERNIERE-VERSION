@@ -356,9 +356,35 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
 .login-input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:10px 14px;font-size:15px;font-family:'Barlow',sans-serif;color:var(--text);margin-bottom:12px}
 .login-input:focus{outline:none;border-color:var(--blue)}
 
+.inst-big{display:block;width:100%;margin-bottom:14px;padding:14px;border:0;border-radius:var(--radius);background:var(--gold);color:#000;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;box-shadow:var(--shadow)}
+body.is-app .inst-el{display:none!important}
+#inst-modal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:none;align-items:center;justify-content:center;padding:16px}
+#inst-modal.show{display:flex}
+#inst-modal .box{background:#fff;color:#1a1a2e;border-radius:14px;max-width:420px;width:100%;padding:20px;max-height:90vh;overflow:auto}
+#inst-modal h3{font-family:'Barlow Condensed',sans-serif;font-size:22px;color:var(--blue);margin-bottom:10px}
+#inst-modal h4{font-size:15px;margin:14px 0 6px;color:var(--red)}
+#inst-modal ol{padding-left:20px;font-size:14px;line-height:1.5}
+#inst-modal .close{margin-top:16px;width:100%;padding:12px;border:0;border-radius:10px;background:var(--blue);color:#fff;font-weight:700;font-size:15px;cursor:pointer}
 </style>
 </head>
 <body>
+<div id="inst-modal" onclick="if(event.target===this)this.classList.remove('show')"><div class="box">
+  <h3>📲 Installer AGIRS sur votre téléphone</h3>
+  <p style="font-size:14px">L'application s'ouvrira en plein écran depuis une icône, comme une appli normale. Pas besoin du Play Store ni de l'App Store.</p>
+  <h4>Android (Chrome)</h4>
+  <ol>
+    <li>Si la page est ouverte dans une autre appli (croix en haut à gauche), touchez <b>⋮</b> puis <b>« Ouvrir dans Chrome »</b>.</li>
+    <li>Dans Chrome, touchez le menu <b>⋮</b> en haut à droite.</li>
+    <li>Choisissez <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</li>
+  </ol>
+  <h4>iPhone (Safari)</h4>
+  <ol>
+    <li>Ouvrez la page dans <b>Safari</b>.</li>
+    <li>Touchez le bouton <b>Partager</b> (carré avec une flèche vers le haut).</li>
+    <li>Choisissez <b>« Sur l'écran d'accueil »</b> puis <b>Ajouter</b>.</li>
+  </ol>
+  <button class="close" onclick="document.getElementById('inst-modal').classList.remove('show')">J'ai compris</button>
+</div></div>
 
 <div id="fb-loading" style="position:fixed;inset:0;background:#1a4fa0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px">
   <div style="width:60px;height:60px;background:#d42b2b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;color:#fff">GYM</div>
@@ -375,7 +401,6 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:6px">
-      <button id="installBtn" onclick="doInstall()" style="display:none;background:var(--gold);color:#000;border:0;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;padding:4px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;cursor:pointer">📲 Installer</button>
     <div class="header-badge" id="hbadge">Concours</div>
     </div>
   </div>
@@ -384,7 +409,8 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
     <div class="nav-tab" onclick="showPage('notation')">📋 Notation</div>
     <div class="nav-tab" onclick="showPage('resultats')">🏆 Résultats</div>
     <div class="nav-tab" onclick="showPage('avancement')">📊 Avancement</div>
-    <div class="nav-tab" onclick="showPage('admin')" style="margin-left:auto;color:var(--gold)">🔐 Admin</div>
+    <div class="nav-tab inst-el" onclick="doInstall()" style="margin-left:auto;color:var(--gold)">📲 Installer</div>
+    <div class="nav-tab" onclick="showPage('admin')" style="color:var(--gold)">🔐 Admin</div>
   </div>
 </div>
 
@@ -403,6 +429,7 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
 <div class="page active" id="page-inscription">
   <div class="section-title">Équipes &amp; Gymnastes</div>
   <div class="section-sub">Créez vos équipes et saisissez les gymnastes</div>
+  <button class="inst-el inst-big" onclick="doInstall()">📲 Installer AGIRS sur mon téléphone</button>
   <div id="new-team-area"></div>
   <button class="btn-sm btn-blue" style="margin-bottom:14px;width:100%;padding:12px" onclick="showNewTeamForm()">＋ Créer une nouvelle équipe</button>
   <div id="teams-list"></div>
@@ -1570,14 +1597,17 @@ renderInscription();
 let deferredPrompt=null;
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 const _standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-const _isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBtn').style.display='';});
-window.addEventListener('appinstalled',()=>{document.getElementById('installBtn').style.display='none';toast('✓ Application installée');});
-// Bouton toujours visible tant que l'appli n'est pas installée (sinon instructions manuelles)
-if(!_standalone) document.getElementById('installBtn').style.display='';
+if(_standalone) document.body.classList.add('is-app');
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;});
+window.addEventListener('appinstalled',()=>{document.body.classList.add('is-app');toast('✓ Application installée');});
 async function doInstall(){
-  if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBtn').style.display='none';}
-  else alert('Si tu es dans l\'aperçu d\'une autre appli (croix en haut à gauche), ouvre d\'abord la page dans Chrome ou Safari : menu ⋮ puis « Ouvrir dans Chrome ».\n\nSur iPhone : touche le bouton Partager (carré avec une flèche) en bas de Safari, puis « Sur l\'écran d\'accueil ».\n\nSur Android : menu ⋮ de Chrome, puis « Ajouter à l\'écran d\'accueil » ou « Installer l\'application ».');
+  if(deferredPrompt){
+    deferredPrompt.prompt();
+    const r=await deferredPrompt.userChoice; deferredPrompt=null;
+    if(r && r.outcome==='accepted') document.body.classList.add('is-app');
+  } else {
+    document.getElementById('inst-modal').classList.add('show');
+  }
 }
 </script>
 </body>
