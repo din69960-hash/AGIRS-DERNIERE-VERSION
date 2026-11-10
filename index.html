@@ -1573,10 +1573,11 @@ const _standalone = window.matchMedia('(display-mode: standalone)').matches || n
 const _isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBtn').style.display='';});
 window.addEventListener('appinstalled',()=>{document.getElementById('installBtn').style.display='none';toast('✓ Application installée');});
-if(_isIOS && !_standalone) document.getElementById('installBtn').style.display='';
+// Bouton toujours visible tant que l'appli n'est pas installée (sinon instructions manuelles)
+if(!_standalone) document.getElementById('installBtn').style.display='';
 async function doInstall(){
   if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBtn').style.display='none';}
-  else alert('Sur iPhone : touche le bouton Partager (carré avec une flèche) en bas de Safari, puis « Sur l\'écran d\'accueil ».\n\nSur Android : menu ⋮ de Chrome, puis « Ajouter à l\'écran d\'accueil » ou « Installer l\'application ».');
+  else alert('Si tu es dans l\'aperçu d\'une autre appli (croix en haut à gauche), ouvre d\'abord la page dans Chrome ou Safari : menu ⋮ puis « Ouvrir dans Chrome ».\n\nSur iPhone : touche le bouton Partager (carré avec une flèche) en bas de Safari, puis « Sur l\'écran d\'accueil ».\n\nSur Android : menu ⋮ de Chrome, puis « Ajouter à l\'écran d\'accueil » ou « Installer l\'application ».');
 }
 </script>
 </body>
