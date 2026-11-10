@@ -4,11 +4,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a4fa0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AGIRS">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>AGIRS – Notation Concours</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+// Préfixe des données : '' = site officiel, 'test_' = page de test (données séparées)
+window.AGIRS_PREFIX = '';
+</script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, getDocs, onSnapshot, collection, deleteField, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC7HUJxPJO6OyzsK-gOIjJ1ySkblbfYEq8",
@@ -21,19 +30,53 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const TEAMS_DOC   = doc(db, 'agirs', 'teams');
-const SCORES_DOC  = doc(db, 'agirs', 'scores');
-const FILTERS_DOC = doc(db, 'agirs', 'filters');
-const ADMIN_DOC    = doc(db, 'agirs', 'admin');
-const ATELIERS_DOC = doc(db, 'agirs', 'ateliers');
+const PFX = window.AGIRS_PREFIX || '';
+const AGIRS_COL    = collection(db, 'agirs');
+const TEAMS_DOC    = doc(db, 'agirs', PFX+'teams');
+const SCORES_DOC   = doc(db, 'agirs', PFX+'scores');   // ancien format (un seul bloc) – lu une fois pour migration
+const FILTERS_DOC  = doc(db, 'agirs', PFX+'filters');
+const ADMIN_DOC    = doc(db, 'agirs', PFX+'admin');
+const ATELIERS_DOC = doc(db, 'agirs', PFX+'ateliers');
+// Nouveau format : un document par gymnaste -> agirs/<PFX>score_<gid>
+const SCORE_PREFIX = PFX + 'score_';
+const scoreDoc = (gid) => doc(db, 'agirs', SCORE_PREFIX + gid);
 
-window._fbSave = async function(teams, scores, filters) {
+// Équipes + filtres d'âge (les notes ne passent plus par ici)
+window._fbSave = async function(teams, filters) {
   if (window._siteLocked && !window._isAdmin) return;
   try {
     await setDoc(TEAMS_DOC,   { data: JSON.stringify(teams) });
-    await setDoc(SCORES_DOC,  { data: JSON.stringify(scores) });
     await setDoc(FILTERS_DOC, { data: JSON.stringify(filters) });
   } catch(e) { console.warn('Firebase save error', e); }
+};
+
+// Écriture d'UNE note (un champ d'un gymnaste) : deux juges ne peuvent plus s'écraser
+window._fbSetScore = async function(gid, key, val) {
+  try {
+    await setDoc(scoreDoc(gid), { [key]: (val === null ? deleteField() : val) }, { merge: true });
+  } catch(e) { console.warn('Firebase score save error', e); if (typeof toast==='function') toast('⚠ Note non enregistrée sur le serveur', true); }
+};
+
+// Renvoi de toutes les notes d'un gymnaste (bouton Enregistrer)
+window._fbSaveGymnastScores = async function(gid, obj) {
+  if (!obj || !Object.keys(obj).length) return;
+  try { await setDoc(scoreDoc(gid), obj, { merge: true }); }
+  catch(e) { console.warn('Firebase score save error', e); if (typeof toast==='function') toast('⚠ Notes non enregistrées sur le serveur', true); }
+};
+
+// Remise à zéro de toutes les notes
+window._fbResetScores = async function() {
+  try {
+    const snap = await getDocs(AGIRS_COL);
+    let batch = writeBatch(db), n = 0;
+    for (const d of snap.docs) {
+      if (!d.id.startsWith(SCORE_PREFIX)) continue;
+      batch.delete(d.ref);
+      if (++n % 400 === 0) { await batch.commit(); batch = writeBatch(db); }
+    }
+    batch.set(SCORES_DOC, { data: '{}', migrated: true });
+    await batch.commit();
+  } catch(e) { console.warn('Firebase reset error', e); if (typeof toast==='function') toast('⚠ Erreur remise à zéro', true); }
 };
 
 window._fbSaveAdmin = async function(locked) {
@@ -65,12 +108,17 @@ onSnapshot(ADMIN_DOC, (snap) => {
   if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
 });
 
-// Real-time sync scores
-onSnapshot(SCORES_DOC, (snap) => {
-  if (!snap.exists()) return;
-  const d = JSON.parse(snap.data().data || '{}');
+// Real-time sync scores (un document par gymnaste)
+onSnapshot(AGIRS_COL, (snap) => {
+  const d = {};
+  snap.forEach(docSnap => {
+    if (!docSnap.id.startsWith(SCORE_PREFIX)) return;
+    const data = docSnap.data();
+    if (data && Object.keys(data).length) d[docSnap.id.slice(SCORE_PREFIX.length)] = data;
+  });
   if (JSON.stringify(d) === JSON.stringify(window._scores)) return;
   window._scores = d;
+  try { localStorage.setItem(window.AGIRS_PREFIX+'agirs_scores', JSON.stringify(d)); } catch(e) {}
   try {
     const active = document.querySelector('.page.active');
     if (!active) return;
@@ -102,7 +150,17 @@ Promise.all([getDoc(TEAMS_DOC), getDoc(SCORES_DOC), getDoc(FILTERS_DOC), getDoc(
     const d = JSON.parse(ts.data().data);
     if (d.length) window._teams = d;
   }
-  if (ss.exists() && ss.data().data) window._scores = JSON.parse(ss.data().data);
+  // Migration unique : ancien bloc de notes -> un document par gymnaste
+  if (ss.exists() && ss.data().data && !ss.data().migrated) {
+    const legacy = JSON.parse(ss.data().data || '{}');
+    const batch = writeBatch(db);
+    let n = 0;
+    for (const [gid, obj] of Object.entries(legacy)) {
+      if (obj && Object.keys(obj).length) { batch.set(scoreDoc(gid), obj, { merge: true }); n++; }
+    }
+    batch.set(SCORES_DOC, { migrated: true }, { merge: true });
+    batch.commit().then(() => console.log('Migration notes OK :', n, 'gymnastes')).catch(e => console.warn('Migration error', e));
+  }
   if (fs.exists() && fs.data().data) window._ageFilters = JSON.parse(fs.data().data);
   if (as.exists()) window._siteLocked = as.data().locked || false;
   if (atS.exists() && atS.data().data) window._ateliers = JSON.parse(atS.data().data);
@@ -316,7 +374,10 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
         <div class="logo-sub">Association Gymnique Intercommunale</div>
       </div>
     </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button id="installBtn" onclick="doInstall()" style="display:none;background:var(--gold);color:#000;border:0;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;padding:4px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;cursor:pointer">📲 Installer</button>
     <div class="header-badge" id="hbadge">Concours</div>
+    </div>
   </div>
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="showPage('inscription')">👥 Équipes</div>
@@ -468,9 +529,9 @@ function getDisciplines(teamType) {
 // STATE
 // ══════════════════════════════════════════════════
 // Firebase shared state via window
-window._teams = JSON.parse(localStorage.getItem('agirs_teams') || '[]');
-window._scores = JSON.parse(localStorage.getItem('agirs_scores') || '{}');
-window._ageFilters = JSON.parse(localStorage.getItem('agirs_age_filters') || '[]');
+window._teams = JSON.parse(localStorage.getItem(window.AGIRS_PREFIX+'agirs_teams') || '[]');
+window._scores = JSON.parse(localStorage.getItem(window.AGIRS_PREFIX+'agirs_scores') || '{}');
+window._ageFilters = JSON.parse(localStorage.getItem(window.AGIRS_PREFIX+'agirs_age_filters') || '[]');
 window._fbReady = false;
 
 // Proxies so existing code works unchanged
@@ -661,8 +722,7 @@ function setSiteLock(locked) {
 
 function adminResetScores() {
   if (!confirm('Confirmer vous la suppression définitive de tous les résultats ?\n\nCette action est irréversible.')) return;
-  scores = {};
-  save();
+  resetAllScores();
   activeGymnast = null;
   document.getElementById('notation-form-area').innerHTML = '';
   renderAdmin();
@@ -677,11 +737,11 @@ function adminLogout() {
 
 function save() {
   if (window._siteLocked && !window._isAdmin) { toast('🔒 Site verrouillé – saisie impossible', true); return; }
-  localStorage.setItem('agirs_teams',  JSON.stringify(teams));
-  localStorage.setItem('agirs_scores', JSON.stringify(scores));
-  localStorage.setItem('agirs_age_filters', JSON.stringify(ageFilters));
+  localStorage.setItem(window.AGIRS_PREFIX+'agirs_teams',  JSON.stringify(teams));
+  localStorage.setItem(window.AGIRS_PREFIX+'agirs_scores', JSON.stringify(scores));
+  localStorage.setItem(window.AGIRS_PREFIX+'agirs_age_filters', JSON.stringify(ageFilters));
   if (typeof window._fbSave === 'function') {
-    window._fbSave(teams, scores, ageFilters);
+    window._fbSave(teams, ageFilters);
   }
 }
 
@@ -694,10 +754,30 @@ function getScore(gid, key) {
   const s = scores[gymKey(gid)];
   return s && s[key] !== undefined ? s[key] : null;
 }
+function scoresLocked() {
+  if (window._siteLocked && !window._isAdmin) { toast('🔒 Site verrouillé – saisie impossible', true); return true; }
+  return false;
+}
+function cacheScores() {
+  try { localStorage.setItem(window.AGIRS_PREFIX+'agirs_scores', JSON.stringify(scores)); } catch(e) {}
+}
 function setScore(gid, key, val) {
+  if (scoresLocked()) return;
   if (!scores[gymKey(gid)]) scores[gymKey(gid)] = {};
   scores[gymKey(gid)][key] = val;
-  save();
+  cacheScores();
+  if (typeof window._fbSetScore === 'function') window._fbSetScore(gymKey(gid), key, val);
+}
+function clearScore(gid, key) {
+  if (scoresLocked()) return;
+  if (scores[gymKey(gid)]) delete scores[gymKey(gid)][key];
+  cacheScores();
+  if (typeof window._fbSetScore === 'function') window._fbSetScore(gymKey(gid), key, null);
+}
+function resetAllScores() {
+  scores = {};
+  cacheScores();
+  if (typeof window._fbResetScores === 'function') window._fbResetScores();
 }
 function getTotal(gid, teamType, agres) {
   const discs = getDisciplines(teamType);
@@ -1078,7 +1158,7 @@ function renderNotationForm(gid) {
 function setCritScore(gid, key, type, val) {
   const storeKey = key + '_' + type;
   if (val === '') {
-    if (scores[gymKey(gid)]) delete scores[gymKey(gid)][storeKey];
+    clearScore(gid, storeKey);
   } else {
     setScore(gid, storeKey, parseFloat(val));
   }
@@ -1116,15 +1196,15 @@ function setCritScore(gid, key, type, val) {
 }
 
 function saveGymnast(gid) {
-  save();
+  if (scoresLocked()) return;
+  if (typeof window._fbSaveGymnastScores === 'function') window._fbSaveGymnastScores(gymKey(gid), scores[gymKey(gid)]);
   toast('✓ Notes enregistrées !');
   renderGymnastList();
 }
 
 function setInlineScore(gid, key, val) {
-  if (val === '') { if (scores[gymKey(gid)]) delete scores[gymKey(gid)][key]; }
+  if (val === '') { clearScore(gid, key); }
   else { setScore(gid, key, parseFloat(val)); }
-  save();
   renderGymnastList();
 }
 
@@ -1355,8 +1435,7 @@ function renderAvancement() {
 
 function confirmReset() {
   if (!confirm('Réinitialiser TOUTES les notes ? Action irréversible.')) return;
-  scores = {};
-  save();
+  resetAllScores();
   activeGymnast = null;
   document.getElementById('notation-form-area').innerHTML = '';
   renderGymnastList();
@@ -1475,7 +1554,7 @@ const DEFAULT_TEAMS = [
       newScores[k] = v;
     }
   }
-  if (changed) { scores = newScores; localStorage.setItem('agirs_scores', JSON.stringify(scores)); }
+  if (changed) { scores = newScores; localStorage.setItem(window.AGIRS_PREFIX+'agirs_scores', JSON.stringify(scores)); }
 })();
 
 // Charger les équipes par défaut si localStorage vide
@@ -1484,6 +1563,21 @@ if (!teams.length) {
   save();
 }
 renderInscription();
+
+// ══════════════════════════════════════════════════
+// INSTALLATION COMME UNE APPLICATION (hors Play Store)
+// ══════════════════════════════════════════════════
+let deferredPrompt=null;
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+const _standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const _isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBtn').style.display='';});
+window.addEventListener('appinstalled',()=>{document.getElementById('installBtn').style.display='none';toast('✓ Application installée');});
+if(_isIOS && !_standalone) document.getElementById('installBtn').style.display='';
+async function doInstall(){
+  if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBtn').style.display='none';}
+  else alert('Sur iPhone : touche le bouton Partager (carré avec une flèche) en bas de Safari, puis « Sur l\'écran d\'accueil ».\n\nSur Android : menu ⋮ de Chrome, puis « Ajouter à l\'écran d\'accueil » ou « Installer l\'application ».');
+}
 </script>
 </body>
 </html>
