@@ -509,26 +509,26 @@ body.is-app .inst-el{display:none!important}
 // CONSTANTES DISCIPLINES
 // ══════════════════════════════════════════════════
 const DISC_GAF = [
-  {key:'sol_av',   label:'Rotation avant',  section:'Sol',    max:10},
-  {key:'sol_ar',   label:'Rotation arrière',section:'Sol',    max:10},
-  {key:'sol_ch',   label:'Chorégraphie',    section:'Sol',    max:10},
-  {key:'sol_so',   label:'Souplesse',       section:'Sol',    max:10},
-  {key:'bar_su',   label:'Suspension',      section:'Barres', max:10},
-  {key:'bar_ap',   label:'Appui',           section:'Barres', max:10},
-  {key:'poutre',   label:'Poutre',          section:'Poutre', max:10},
-  {key:'saut_sa',  label:'Saut',            section:'Saut',   max:10},
-  {key:'saut_al',  label:'Alignement',      section:'Saut',   max:10},
+  {key:'sol_av',   label:'Rotation avant',  section:'Sol',    max:20},
+  {key:'sol_ar',   label:'Rotation arrière',section:'Sol',    max:20},
+  {key:'sol_ch',   label:'Chorégraphie',    section:'Sol',    max:20},
+  {key:'sol_so',   label:'Souplesse',       section:'Sol',    max:20},
+  {key:'bar_su',   label:'Suspension',      section:'Barres', max:20},
+  {key:'bar_ap',   label:'Appui',           section:'Barres', max:20},
+  {key:'poutre',   label:'Poutre',          section:'Poutre', max:20},
+  {key:'saut_sa',  label:'Saut',            section:'Saut',   max:20},
+  {key:'saut_al',  label:'Alignement',      section:'Saut',   max:20},
 ];
 const DISC_GAM = [
-  {key:'sol_av',   label:'Rotation avant',  section:'Sol',    max:10},
-  {key:'sol_ar',   label:'Rotation arrière',section:'Sol',    max:10},
-  {key:'sol_ch',   label:'Chorégraphie',    section:'Sol',    max:10},
-  {key:'sol_so',   label:'Souplesse',       section:'Sol',    max:10},
-  {key:'bar_su',   label:'Suspension',      section:'Barres', max:10},
-  {key:'bar_ap',   label:'Appui',           section:'Barres', max:10},
-  {key:'anneaux',  label:'Anneaux',         section:'Anneaux',max:10},
-  {key:'saut_sa',  label:'Saut',            section:'Saut',   max:10},
-  {key:'saut_al',  label:'Alignement',      section:'Saut',   max:10},
+  {key:'sol_av',   label:'Rotation avant',  section:'Sol',    max:20},
+  {key:'sol_ar',   label:'Rotation arrière',section:'Sol',    max:20},
+  {key:'sol_ch',   label:'Chorégraphie',    section:'Sol',    max:20},
+  {key:'sol_so',   label:'Souplesse',       section:'Sol',    max:20},
+  {key:'bar_su',   label:'Suspension',      section:'Barres', max:20},
+  {key:'bar_ap',   label:'Appui',           section:'Barres', max:20},
+  {key:'anneaux',  label:'Anneaux',         section:'Anneaux',max:20},
+  {key:'saut_sa',  label:'Saut',            section:'Saut',   max:20},
+  {key:'saut_al',  label:'Alignement',      section:'Saut',   max:20},
 ];
 
 const SECTION_AGRES = {
@@ -546,7 +546,7 @@ function getDisciplines(teamType) {
     const seen = {};
     return window._ateliers.map(a => {
       const key = 'at_' + a.id;
-      return { key, label: a.label, section: a.agres, max: 10 };
+      return { key, label: a.label, section: a.agres, max: 20 };
     });
   }
   return (teamType||'').toLowerCase().includes('gam') ? DISC_GAM : DISC_GAF;
@@ -1107,8 +1107,8 @@ function renderNotationForm(gid) {
       <div class="group-badge">${esc(g.teamName)} · ${g.annee||'?'}</div>
     </div>`;
 
-  // Build note options 0-10
-  const noteOpts = (cur) => ['',0,1,2,3,4,5,6,7,8,9,10].map(v=>
+  // Build note options 0-20
+  const noteOpts = (cur) => ['',...Array.from({length:21},(_,i)=>i)].map(v=>
     `<option value="${v}" ${String(cur)===String(v)?'selected':''}>${v===''?'–':v}</option>`).join('');
   // Build note difficulté options 0-3.6 by 0.1
   const diffRange = [''];
