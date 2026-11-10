@@ -725,6 +725,22 @@ function renderAteliersList() {
           value="${esc(n)}" data-niv="${esc(n)}" placeholder="Sans niveau – tapez un nom" onchange="renameNiveau(this.dataset.niv, this.value)">
         <span style="font-size:12px;color:var(--text2)">${ats.length} atelier(s) · ${nbTeams} équipe(s)</span>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn-sm btn-blue" style="flex:1;padding:9px" data-niv="${esc(n)}" onclick="toggleEditNiveau(this.dataset.niv)">${window._editNiveau===n?'✔ Terminer':'✏️ Modifier'}</button>
+        <button class="btn-sm btn-red" style="flex:1;padding:9px" data-niv="${esc(n)}" onclick="deleteNiveau(this.dataset.niv)">🗑 Supprimer</button>
+      </div>
+      ${window._editNiveau===n ? `
+      <div style="background:var(--gold-bg);border:1.5px dashed var(--gold);border-radius:10px;padding:10px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">➕ Ajouter un atelier dans « ${esc(nivLabel(n))} »</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select class="param-select" id="edit-agres-sel" style="flex:1;min-width:110px">
+            ${AGRES_LIST.map(a=>`<option value="${a}" ${a===window._lastEditAgres?'selected':''}>${a}</option>`).join('')}
+          </select>
+          <input id="edit-atelier-label" class="add-age-inp" placeholder="Nom de l'atelier" style="flex:2;min-width:150px;width:auto"
+            data-niv="${esc(n)}" onkeydown="if(event.key==='Enter')addAtelierToNiveau(this.dataset.niv)">
+          <button class="btn-sm btn-green" style="padding:8px 16px" data-niv="${esc(n)}" onclick="addAtelierToNiveau(this.dataset.niv)">Ajouter</button>
+        </div>
+      </div>` : ''}
       ${Object.entries(byAgres).map(([agres, items]) => `
         <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
           <span style="font-size:16px">${AGRES_ICONS[agres]||'⭐'}</span>
@@ -742,6 +758,39 @@ function renderAteliersList() {
   }).join('');
 }
 
+function toggleEditNiveau(n) {
+  n = niv(n);
+  window._editNiveau = (window._editNiveau === n) ? null : n;
+  renderAteliersList();
+  if (window._editNiveau !== null) { const i = document.getElementById('edit-atelier-label'); if (i) { i.scrollIntoView({block:'center'}); i.focus(); } }
+}
+function addAtelierToNiveau(n) {
+  n = niv(n);
+  const agres = document.getElementById('edit-agres-sel').value;
+  const label = document.getElementById('edit-atelier-label').value.trim();
+  if (!label) { toast("Saisissez un nom d'atelier", true); return; }
+  window._ateliers.push({ id: uid(), agres, label, niveau: n });
+  window._lastEditAgres = agres;
+  saveAteliers();
+  renderAteliersList();
+  if (typeof renderInscription==='function') renderInscription();
+  const i = document.getElementById('edit-atelier-label'); if (i) i.focus();
+  toast('✓ Atelier ajouté – ' + nivLabel(n));
+}
+function deleteNiveau(n) {
+  n = niv(n);
+  const ats = window._ateliers.filter(a => niv(a.niveau) === n);
+  const nbTeams = teams.filter(t => niv(t.niveau) === n).length;
+  if (!confirm(`Supprimer le niveau « ${nivLabel(n)} » et ses ${ats.length} atelier(s) ?\n\n${nbTeams} équipe(s) de ce niveau ne seront plus notées sur ces ateliers : leurs notes ne compteront plus dans les totaux ni dans le palmarès.\n\nAction irréversible.`)) return;
+  window._ateliers = window._ateliers.filter(a => niv(a.niveau) !== n);
+  if (window._editNiveau === n) window._editNiveau = null;
+  if (window._lastNiveau === n) window._lastNiveau = '';
+  saveAteliers();
+  renderAteliersList();
+  if (typeof renderInscription==='function') renderInscription();
+  toast('Niveau « ' + nivLabel(n) + ' » supprimé');
+}
+
 // Renommer un niveau : ses ateliers ET les équipes de ce niveau suivent (aucune note perdue)
 function renameNiveau(oldN, newN) {
   oldN = niv(oldN); newN = niv(newN);
@@ -753,6 +802,7 @@ function renameNiveau(oldN, newN) {
   saveAteliers();
   if (teamsChanged) save();
   if (window._lastNiveau === oldN) window._lastNiveau = newN;
+  if (window._editNiveau === oldN) window._editNiveau = newN;
   renderAteliersList();
   if (typeof renderInscription==='function') renderInscription();
   toast('✓ Niveau renommé' + (teamsChanged ? ' (équipes mises à jour)' : ''));
