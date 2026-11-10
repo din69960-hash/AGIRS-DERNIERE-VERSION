@@ -4,6 +4,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest-test.json">
+<meta name="theme-color" content="#1a4fa0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AGIRS TEST">
+<link rel="apple-touch-icon" href="apple-touch-icon-test.png">
 <title>TEST – AGIRS Notation</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <script>
@@ -370,7 +375,10 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
         <div class="logo-sub">Association Gymnique Intercommunale</div>
       </div>
     </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button id="installBtn" onclick="doInstall()" style="display:none;background:var(--gold);color:#000;border:0;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;padding:4px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;cursor:pointer">📲 Installer</button>
     <div class="header-badge" id="hbadge">Concours</div>
+    </div>
   </div>
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="showPage('inscription')">👥 Équipes</div>
@@ -1556,6 +1564,21 @@ if (!teams.length) {
   save();
 }
 renderInscription();
+
+// ══════════════════════════════════════════════════
+// INSTALLATION COMME UNE APPLICATION (hors Play Store)
+// ══════════════════════════════════════════════════
+let deferredPrompt=null;
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+const _standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+const _isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;document.getElementById('installBtn').style.display='';});
+window.addEventListener('appinstalled',()=>{document.getElementById('installBtn').style.display='none';toast('✓ Application installée');});
+if(_isIOS && !_standalone) document.getElementById('installBtn').style.display='';
+async function doInstall(){
+  if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;document.getElementById('installBtn').style.display='none';}
+  else alert('Sur iPhone : touche le bouton Partager (carré avec une flèche) en bas de Safari, puis « Sur l\'écran d\'accueil ».\n\nSur Android : menu ⋮ de Chrome, puis « Ajouter à l\'écran d\'accueil » ou « Installer l\'application ».');
+}
 </script>
 </body>
 </html>
