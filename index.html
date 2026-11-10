@@ -464,6 +464,10 @@ body.is-app .inst-el{display:none!important}
         <option value="equipe-age">Équipe – Par année d'âge</option>
       </select>
     </div>
+    <div class="param-row" id="res-niveau-row">
+      <div class="param-label">Niveau</div>
+      <select class="param-select" id="res-niveau" onchange="renderResults()"></select>
+    </div>
     <div class="param-row" id="res-agrès-row">
       <div class="param-label">Agrès concerné</div>
       <select class="param-select" id="res-agres" onchange="renderResults()">
@@ -539,15 +543,24 @@ const SECTION_AGRES = {
   total:  null
 };
 
-function getDisciplines(teamType) {
-  // If custom ateliers are defined, use them
+// Niveau = famille d'ateliers. '' = « Sans niveau » (ateliers créés avant les niveaux)
+function niv(v) { return (v||'').trim(); }
+function nivLabel(v) { return niv(v) || 'Sans niveau'; }
+function getNiveaux() {
+  const set = [];
+  for (const a of (window._ateliers||[])) { const n = niv(a.niveau); if (n && !set.includes(n)) set.push(n); }
+  return set;
+}
+function teamNiveauOf(gid) {
+  for (const t of teams) if (t.gymnasts.some(g => g.id === gid)) return niv(t.niveau);
+  return '';
+}
+function getDisciplines(teamType, niveau) {
+  // Ateliers personnalisés du niveau de l'équipe
   if (window._ateliers && window._ateliers.length > 0) {
-    // Group ateliers by agres as disciplines
-    const seen = {};
-    return window._ateliers.map(a => {
-      const key = 'at_' + a.id;
-      return { key, label: a.label, section: a.agres, max: 20 };
-    });
+    const n = niv(niveau);
+    const list = window._ateliers.filter(a => niv(a.niveau) === n);
+    if (list.length) return list.map(a => ({ key: 'at_' + a.id, label: a.label, section: a.agres, max: 20 }));
   }
   return (teamType||'').toLowerCase().includes('gam') ? DISC_GAM : DISC_GAF;
 }
@@ -650,10 +663,16 @@ function showAteliersPage() {
       <button class="btn-sm btn-outline" onclick="renderAdmin()">← Retour Admin</button>
       <div class="section-title" style="margin-bottom:0">Gestion des ateliers</div>
     </div>
-    <div class="section-sub">Définissez les agrès et leurs ateliers. Ces ateliers remplacent les critères par défaut dans la notation.</div>
+    <div class="section-sub">Chaque niveau est une famille d'ateliers. Les gymnastes sont notés avec les ateliers du niveau de leur équipe.</div>
 
     <div class="admin-card" style="padding:12px">
       <div class="param-title">➕ Ajouter un atelier</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <select class="param-select" id="new-niveau-sel" style="flex:1;min-width:160px" onchange="document.getElementById('new-niveau-inp').style.display=this.value==='__new'?'':'none'">
+          ${niveauOptionsHtml(window._lastNiveau||'', true)}
+        </select>
+        <input id="new-niveau-inp" class="add-age-inp" placeholder="Nom du nouveau niveau (ex : Niveau 1)" style="flex:2;min-width:160px;width:auto;display:none">
+      </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <select class="param-select" id="new-agres-sel" style="flex:1;min-width:120px">
           ${AGRES_LIST.map(a=>`<option value="${a}">${a}</option>`).join('')}
@@ -666,56 +685,99 @@ function showAteliersPage() {
     <div id="ateliers-list-area"></div>
 
     <div class="admin-card" style="border-color:var(--red)">
-      <div class="admin-desc" style="margin-bottom:10px">⚠️ Supprimer TOUS les ateliers remet les critères par défaut (Rotation avant, Suspension...)</div>
+      <div class="admin-desc" style="margin-bottom:10px">⚠️ Supprimer un atelier retire ses notes des totaux et du palmarès. Supprimer TOUS les ateliers remet les critères par défaut (Rotation avant, Suspension...)</div>
       <button class="btn-sm btn-red" style="width:100%;padding:10px" onclick="clearAllAteliers()">🗑 Supprimer tous les ateliers</button>
     </div>`;
   renderAteliersList();
 }
 
+function niveauOptionsHtml(cur, withNew) {
+  const nivs = getNiveaux();
+  const hasSans = (window._ateliers||[]).some(a => !niv(a.niveau));
+  let h = nivs.map(n => `<option value="${esc(n)}" ${n===cur?'selected':''}>${esc(n)}</option>`).join('');
+  if (hasSans || !nivs.length) h += `<option value="" ${cur===''?'selected':''}>Sans niveau</option>`;
+  if (withNew) h += `<option value="__new" ${!nivs.length&&!hasSans?'selected':''}>➕ Nouveau niveau…</option>`;
+  return h;
+}
+
 function renderAteliersList() {
   const area = document.getElementById('ateliers-list-area');
   if (!area) return;
+  const sel = document.getElementById('new-niveau-sel');
+  if (sel) { sel.innerHTML = niveauOptionsHtml(window._lastNiveau||'', true); document.getElementById('new-niveau-inp').style.display = sel.value==='__new' ? '' : 'none'; }
   if (!window._ateliers.length) {
     area.innerHTML = '<div class="empty-state" style="padding:20px">Aucun atelier défini.<br>Utilisez le formulaire ci-dessus pour en ajouter.</div>';
     return;
   }
-  // Group by agres
-  const byAgres = {};
-  for (const a of window._ateliers) {
-    if (!byAgres[a.agres]) byAgres[a.agres] = [];
-    byAgres[a.agres].push(a);
-  }
-  area.innerHTML = Object.entries(byAgres).map(([agres, items]) => `
-    <div class="admin-card" style="padding:12px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <span style="font-size:18px">${AGRES_ICONS[agres]||'⭐'}</span>
-        <div class="param-title" style="margin-bottom:0">${agres}</div>
-        <span style="font-size:12px;color:var(--text2);margin-left:4px">${items.length} atelier(s)</span>
+  // Groupe par niveau puis par agrès
+  const order = [...getNiveaux()];
+  if (window._ateliers.some(a => !niv(a.niveau))) order.push('');
+  area.innerHTML = order.map(n => {
+    const ats = window._ateliers.filter(a => niv(a.niveau) === n);
+    const nbTeams = teams.filter(t => niv(t.niveau) === n).length;
+    const byAgres = {};
+    for (const a of ats) { (byAgres[a.agres] = byAgres[a.agres] || []).push(a); }
+    return `
+    <div class="admin-card" style="padding:12px;border:2px solid var(--blue)">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <span style="font-size:18px">🏷️</span>
+        <input style="flex:1;min-width:140px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:18px;color:var(--blue);border:1.5px solid var(--border);border-radius:8px;padding:4px 8px;background:var(--bg)"
+          value="${esc(n)}" data-niv="${esc(n)}" placeholder="Sans niveau – tapez un nom" onchange="renameNiveau(this.dataset.niv, this.value)">
+        <span style="font-size:12px;color:var(--text2)">${ats.length} atelier(s) · ${nbTeams} équipe(s)</span>
       </div>
-      ${items.map((a,i) => `
+      ${Object.entries(byAgres).map(([agres, items]) => `
+        <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+          <span style="font-size:16px">${AGRES_ICONS[agres]||'⭐'}</span>
+          <div class="param-title" style="margin-bottom:0;font-size:14px">${agres}</div>
+        </div>
+        ${items.map((a,i) => `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
           <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;color:var(--text2);min-width:20px">${i+1}.</span>
-          <input style="flex:1;border:none;background:transparent;font-family:'Barlow',sans-serif;font-size:13px;color:var(--text)" 
-            value="${esc(a.label)}" 
+          <input style="flex:1;border:none;background:transparent;font-family:'Barlow',sans-serif;font-size:13px;color:var(--text)"
+            value="${esc(a.label)}"
             onchange="renameAtelier('${a.id}',this.value)">
           <button class="del-btn" onclick="deleteAtelier('${a.id}')">×</button>
-        </div>`).join('')}
-    </div>`).join('');
+        </div>`).join('')}`).join('')}
+    </div>`;
+  }).join('');
+}
+
+// Renommer un niveau : ses ateliers ET les équipes de ce niveau suivent (aucune note perdue)
+function renameNiveau(oldN, newN) {
+  oldN = niv(oldN); newN = niv(newN);
+  if (oldN === newN) return;
+  if (newN && getNiveaux().includes(newN) && !confirm(`Le niveau « ${newN} » existe déjà. Fusionner les deux niveaux ?`)) { renderAteliersList(); return; }
+  for (const a of window._ateliers) if (niv(a.niveau) === oldN) a.niveau = newN;
+  let teamsChanged = false;
+  for (const t of teams) if (niv(t.niveau) === oldN) { t.niveau = newN; teamsChanged = true; }
+  saveAteliers();
+  if (teamsChanged) save();
+  if (window._lastNiveau === oldN) window._lastNiveau = newN;
+  renderAteliersList();
+  if (typeof renderInscription==='function') renderInscription();
+  toast('✓ Niveau renommé' + (teamsChanged ? ' (équipes mises à jour)' : ''));
 }
 
 function addAtelier() {
   const agres = document.getElementById('new-agres-sel').value;
   const label = document.getElementById('new-atelier-label').value.trim();
+  let niveau = document.getElementById('new-niveau-sel').value;
+  if (niveau === '__new') niveau = niv(document.getElementById('new-niveau-inp').value);
+  if (niveau === '__new' || (document.getElementById('new-niveau-sel').value === '__new' && !niveau)) { toast('Saisissez le nom du niveau', true); return; }
   if (!label) { toast("Saisissez un nom d'atelier", true); return; }
-  const newAt = { id: uid(), agres, label };
+  const newAt = { id: uid(), agres, label, niveau };
   window._ateliers.push(newAt);
+  window._lastNiveau = niveau;
   saveAteliers();
   document.getElementById('new-atelier-label').value = '';
+  document.getElementById('new-niveau-inp').value = '';
   renderAteliersList();
-  toast('✓ Atelier ajouté');
+  if (typeof renderInscription==='function') renderInscription();
+  toast('✓ Atelier ajouté' + (niveau ? ' – ' + niveau : ''));
 }
 
 function deleteAtelier(aid) {
+  if (!confirm("Supprimer cet atelier ? Ses notes ne compteront plus dans les totaux ni dans le palmarès.")) return;
   window._ateliers = window._ateliers.filter(a => a.id !== aid);
   saveAteliers();
   renderAteliersList();
@@ -774,7 +836,7 @@ function save() {
 
 // helpers
 function allGymnasts() {
-  return teams.flatMap(t => t.gymnasts.map(g => ({...g, teamId:t.id, teamName:t.name, teamType:t.type})));
+  return teams.flatMap(t => t.gymnasts.map(g => ({...g, teamId:t.id, teamName:t.name, teamType:t.type, teamNiveau:niv(t.niveau)})));
 }
 function gymKey(gid) { return gid; }
 function getScore(gid, key) {
@@ -807,7 +869,7 @@ function resetAllScores() {
   if (typeof window._fbResetScores === 'function') window._fbResetScores();
 }
 function getTotal(gid, teamType, agres) {
-  const discs = getDisciplines(teamType);
+  const discs = getDisciplines(teamType, teamNiveauOf(gid));
   const filtered = agres && SECTION_AGRES[agres]
     ? discs.filter(d => SECTION_AGRES[agres].includes(d.section))
     : discs;
@@ -820,10 +882,10 @@ function getTotal(gid, teamType, agres) {
   }, 0);
 }
 function isComplete(gid, teamType) {
-  return getDisciplines(teamType).every(d => getScore(gid, d.key+'_note') !== null);
+  return getDisciplines(teamType, teamNiveauOf(gid)).every(d => getScore(gid, d.key+'_note') !== null);
 }
 function filledCount(gid, teamType) {
-  return getDisciplines(teamType).filter(d => getScore(gid, d.key+'_note') !== null).length;
+  return getDisciplines(teamType, teamNiveauOf(gid)).filter(d => getScore(gid, d.key+'_note') !== null).length;
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
@@ -866,7 +928,7 @@ function renderInscription() {
         <div class="drag-handle" title="Glisser pour réorganiser">⠿</div>
         <div style="flex:1">
           <div class="team-card-name">${esc(t.name)}</div>
-          <div class="team-card-meta">${t.type} · ${t.gymnasts.length} gymnaste(s)</div>
+          <div class="team-card-meta">${t.type}${(getNiveaux().length||niv(t.niveau)) ? ' · ' + esc(nivLabel(t.niveau)) : ''} · ${t.gymnasts.length} gymnaste(s)</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn-sm btn-outline" style="color:#fff;border-color:rgba(255,255,255,.4)" onclick="toggleTeam('${t.id}')">✏️ Modifier</button>
@@ -884,6 +946,12 @@ function renderInscription() {
             <select class="param-select" style="width:100%" onchange="updateTeamType('${t.id}',this.value)">
               <option ${t.type==='GAF'?'selected':''}>GAF</option>
               <option ${t.type==='GAM'?'selected':''}>GAM</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:120px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Niveau</div>
+            <select class="param-select" style="width:100%" onchange="updateTeamNiveau('${t.id}',this.value)">
+              ${teamNiveauOptionsHtml(t.niveau)}
             </select>
           </div>
         </div>
@@ -933,6 +1001,9 @@ function showNewTeamForm() {
           <option>GAF</option>
           <option>GAM</option>
         </select>
+        <select class="param-select" id="nt-niveau" title="Niveau (famille d'ateliers)">
+          ${teamNiveauOptionsHtml(window._lastTeamNiveau||'')}
+        </select>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn-sm btn-green" style="flex:1;padding:10px" onclick="createTeam()">✔ Créer l'équipe</button>
@@ -948,8 +1019,10 @@ function cancelNewTeam() {
 function createTeam() {
   const name = document.getElementById('nt-name').value.trim();
   const type = document.getElementById('nt-type').value;
+  const niveau = niv(document.getElementById('nt-niveau').value);
   if (!name) { toast('Entrez un nom d\'équipe', true); return; }
-  teams.push({id:uid(), name, type, gymnasts:[]});
+  window._lastTeamNiveau = niveau;
+  teams.push({id:uid(), name, type, niveau, gymnasts:[]});
   save();
   cancelNewTeam();
   renderInscription();
@@ -978,6 +1051,18 @@ function updateTeamName(tid, val) {
     renderInscription();
     toggleTeam(tid);
   }
+}
+function teamNiveauOptionsHtml(cur) {
+  const nivs = getNiveaux();
+  cur = niv(cur);
+  let h = nivs.map(n => `<option value="${esc(n)}" ${n===cur?'selected':''}>Niveau : ${esc(n)}</option>`).join('');
+  if (cur && !nivs.includes(cur)) h += `<option value="${esc(cur)}" selected>Niveau : ${esc(cur)} (sans atelier)</option>`;
+  h += `<option value="" ${cur===''?'selected':''}>Sans niveau</option>`;
+  return h;
+}
+function updateTeamNiveau(tid, val) {
+  const t = teams.find(t => t.id === tid);
+  if (t) { t.niveau = niv(val); save(); renderInscription(); toggleTeam(tid); toast('✓ Niveau de l\'équipe : ' + nivLabel(val)); }
 }
 function updateTeamType(tid, val) {
   const t = teams.find(t => t.id === tid);
@@ -1048,7 +1133,7 @@ function renderGymnastList() {
   }
   list.innerHTML = filtered.map(g => {
     const fullName = [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)';
-    const discs = getDisciplines(g.teamType);
+    const discs = getDisciplines(g.teamType, g.teamNiveau);
     const fc = filledCount(g.id, g.teamType);
     const complete = isComplete(g.id, g.teamType);
     const dots = discs.map((_,i) =>
@@ -1089,7 +1174,7 @@ function selectGymnast(gid) {
 function renderNotationForm(gid) {
   const g = allGymnasts().find(x => x.id === gid);
   if (!g) return;
-  const discs = getDisciplines(g.teamType);
+  const discs = getDisciplines(g.teamType, g.teamNiveau);
   const fullName = [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)';
 
   // group by section
@@ -1200,7 +1285,8 @@ function setCritScore(gid, key, type, val) {
   const ctEl = document.getElementById(`ct_${gid}_${key}`);
   if (ctEl) { ctEl.textContent = tot !== null ? tot : '–'; ctEl.className = 'crit-total' + (tot===null?' empty':''); }
   // Update section subtotal
-  const discs = getDisciplines(allGymnasts().find(x=>x.id===gid)?.teamType||'');
+  const _g = allGymnasts().find(x=>x.id===gid);
+  const discs = getDisciplines(_g?.teamType||'', _g?.teamNiveau||'');
   const sections = {};
   for (const dd of discs) { if(!sections[dd.section]) sections[dd.section]=[]; sections[dd.section].push(dd); }
   for (const [sec, items] of Object.entries(sections)) {
@@ -1250,7 +1336,18 @@ function renderResults() {
 
   if (isAge) renderAgeFilterTags();
 
-  const all = allGymnasts();
+  // Filtre niveau
+  const nivSel = document.getElementById('res-niveau');
+  const teamNivs = [...new Set(teams.map(t => niv(t.niveau)))];
+  const curNiv = nivSel.value || '__all';
+  const opts = [['__all','Tous les niveaux']].concat(teamNivs.filter(Boolean).map(n => [n,n]));
+  if (teamNivs.includes('') && teamNivs.length > 1) opts.push(['__none','Sans niveau']);
+  nivSel.innerHTML = opts.map(([v,l]) => `<option value="${esc(v)}" ${v===curNiv?'selected':''}>${esc(l)}</option>`).join('');
+  if (!opts.some(o => o[0] === curNiv)) nivSel.value = '__all';
+  document.getElementById('res-niveau-row').style.display = opts.length > 1 ? 'flex' : 'none';
+  const nivFilter = nivSel.value;
+
+  const all = allGymnasts().filter(g => nivFilter === '__all' ? true : nivFilter === '__none' ? g.teamNiveau === '' : g.teamNiveau === nivFilter);
   const content = document.getElementById('results-content');
 
   if (!all.length) {
@@ -1420,17 +1517,20 @@ function removeAgeFilter(yr) {
 // Export CSV
 function exportCSV() {
   const all = allGymnasts();
-  const allDiscs = [...new Set([...DISC_GAF,...DISC_GAM].map(d=>d.key))];
-  let csv = 'Prénom,Nom,Année,Équipe,' + allDiscs.join(',') + ',Total\n';
+  const cols = []; const seen = new Set();
+  for (const g of all) for (const d of getDisciplines(g.teamType, g.teamNiveau)) if (!seen.has(d.key)) { seen.add(d.key); cols.push(d); }
+  const q = v => '"' + String(v ?? '').replace(/"/g,'""') + '"';
+  let csv = ['Prénom','Nom','Année','Équipe','Niveau',...cols.map(d => d.section + ' – ' + d.label),'Total'].map(q).join(';') + '\n';
   for (const g of all) {
     const t = getTotal(g.id, g.teamType);
     if (t === 0) continue;
-    const row = [g.prenom, g.nom, g.annee, g.teamName,
-      ...allDiscs.map(k => { const v = getScore(g.id, k); return v !== null ? v : ''; }),
-      t];
-    csv += row.join(',') + '\n';
+    const row = [g.prenom, g.nom, g.annee, g.teamName, nivLabel(g.teamNiveau),
+      ...cols.map(d => { const nd = getScore(g.id, d.key+'_note'); if (nd === null) return '';
+        return String(Math.max(0, Math.round(((nd+(getScore(g.id,d.key+'_diff')||0))-(getScore(g.id,d.key+'_faute')||0))*10)/10)).replace('.',','); }),
+      String(Math.round(t*10)/10).replace('.',',')];
+    csv += row.map(q).join(';') + '\n';
   }
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href=url; a.download='agirs-notation.csv'; a.click();
 }
